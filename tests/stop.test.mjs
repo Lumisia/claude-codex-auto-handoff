@@ -91,3 +91,20 @@ test('ask mode persists AWAITING_USER once and notifies without creating a capsu
     assert.equal(findApproval(first.fingerprint).status, 'AWAITING_USER');
   });
 });
+
+test('notification off still asks but sends no notification', async () => {
+  await withRoot(async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ah-proj-'));
+    const config = loadConfig({});
+    config.triggers.five_hour.mode = 'ask';
+    config.notification = { method: 'off' };
+    const notifications = [];
+    const r = await handleStop({
+      input: { session_id: 's-off', cwd }, config, readSensor: async () => reading,
+      agent: 'codex', now: 1000, notifyFn: (...values) => notifications.push(values),
+    });
+    assert.equal(r.action, 'ask');
+    assert.equal(findApproval(r.fingerprint).status, 'AWAITING_USER');
+    assert.equal(notifications.length, 0);
+  });
+});

@@ -209,13 +209,7 @@ Claude Code나 Codex 안에서 입력하세요. 양쪽이 동일합니다.
 
 ## 설정
 
-설정은 OS 데이터 폴더의 파일 하나에 들어 있습니다:
-
-- **Windows:** `%LOCALAPPDATA%\ai-handoff\config.json`
-- **macOS:** `~/Library/Application Support/ai-handoff/config.json`
-- **Linux:** `~/.config/ai-handoff/config.json`
-
-기본값([`config/defaults.json`](config/defaults.json) 참고):
+아래는 **기본값**이며, 플러그인 안의 [`config/defaults.json`](config/defaults.json) 에 들어 있습니다:
 
 ```json
 {
@@ -226,13 +220,66 @@ Claude Code나 Codex 안에서 입력하세요. 양쪽이 동일합니다.
 }
 ```
 
-자주 바꾸는 값:
+> ⚠️ **`config/defaults.json` 은 편집하지 마세요.** 설치된 플러그인 안에 있어서 업데이트할 때마다 덮어써집니다. 대신 아래의 *사용자 config* 파일에서 설정을 바꾸세요.
 
-- **자동으로 인계:** `"mode": "auto"` 로 설정.
-- **더 일찍/늦게 트리거:** `"threshold_percent"` 변경 (예: `70` 또는 `90`).
-- **끄기:** `"mode": "off"` 로 설정.
+### 설정 파일 위치
 
-프로젝트별로 설정을 따로 덮어쓸 수도 있습니다.
+OS에 맞는 경로에 파일 **하나**를 만들거나(또는 편집):
+
+- **Windows:** `%LOCALAPPDATA%\ai-handoff\config.json`
+- **macOS:** `~/Library/Application Support/ai-handoff/config.json`
+- **Linux:** `~/.local/state/ai-handoff/config.json` (또는 `$XDG_STATE_HOME/ai-handoff/config.json`)
+
+이 파일은 **기본값 위에 deep-merge** 됩니다. 그러니 바꿀 키만 넣으면 됩니다 — 파일 전체를 복사하지 마세요.
+
+### 설정 바꾸는 법 — 에이전트로 또는 직접
+
+설정 전용 **인-에이전트 명령은 없습니다**. 설정은 이 JSON 파일입니다. 쉬운 방법 두 가지:
+
+1. **Claude Code나 Codex에게 시키기** — 예: *"내 ai-handoff config 편집해줘: mode를 auto로, 알림은 끄고."* 에이전트가 파일을 대신 편집합니다.
+2. **직접 편집** — 파일을 열어서(없으면 새로 만들어서) 키를 추가합니다.
+
+어느 쪽이든, **새** 에이전트 세션을 시작(또는 Claude Code에서 `/reload-plugins`)해야 변경이 적용됩니다.
+
+### 예시
+
+75%에서 자동 인계하고 알림을 끄는 사용자 config — 나머지는 기본값 유지:
+
+```json
+{
+  "triggers": { "five_hour": { "threshold_percent": 75, "mode": "auto" } },
+  "notification": { "method": "off" }
+}
+```
+
+### 설정 항목 전체
+
+| 키 | 값 | 의미 |
+|---|---|---|
+| `triggers.five_hour.enabled` | `true` / `false` | 5시간 트리거 전체 on/off. |
+| `triggers.five_hour.threshold_percent` | 숫자, 예: `80` | 인계를 촉발하는 사용 %. |
+| `triggers.five_hour.mode` | `auto` / `ask` / `off` | 조용히 인계 / 한 번 질문 / 아무 것도 안 함. |
+| `capsule.completed_autocreate` | `true` / `false` | 작업 완료 시에도 캡슐 생성. |
+| `notification.method` | `os` / `terminal` / `off` | OS 알림 / 터미널 출력 / **알림 안 보냄**. |
+| `notification.fallback` | `terminal` / `off` | `method`가 `os`인데 OS 알림이 실패했을 때만 사용. |
+| `memory.auto_recall` | `true` / `false` | 첫 프롬프트에서 검증된 메모리 recall. |
+| `memory.auto_recall_token_budget` | 숫자, 예: `800` | recall할 메모리의 최대 토큰. |
+
+> `notification.method`를 `off`로 해도 **OS 알림만** 안 뜹니다 — 인계는 그대로 일어나고, `ask` 모드에서는 에이전트가 채팅에 질문을 계속 보여줍니다.
+
+### 프로젝트별
+
+위 설정을 특정 프로젝트에만 다르게 적용하려면, 그 프로젝트의 fingerprint를 키로 하는 `project_overrides` 블록을 추가하세요:
+
+```json
+{
+  "project_overrides": {
+    "<project-fingerprint>": {
+      "triggers": { "five_hour": { "mode": "auto" } }
+    }
+  }
+}
+```
 
 ---
 

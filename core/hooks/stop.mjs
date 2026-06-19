@@ -5,7 +5,7 @@ import { publishCapsule, readState, writeState } from '../capsule/store.mjs';
 import { dedupeKey, hasSeen, markSeen } from '../lib/dedupe.mjs';
 import { globalStatePath } from '../lib/paths.mjs';
 import { saveApproval } from '../capsule/approval.mjs';
-import { notify } from '../lib/notify.mjs';
+import { sendNotification } from '../lib/notify.mjs';
 import {
   generationSlotKey, saveGeneration, findGeneration, finishGeneration,
 } from '../capsule/generation.mjs';
@@ -28,10 +28,15 @@ function summaryInstruction() {
   ].join(' ');
 }
 
-export async function handleStop({ input, config, readSensor, agent, now = Date.now(), notifyFn = notify }) {
+export async function handleStop({ input, config, readSensor, agent, now = Date.now(), notifyFn = sendNotification }) {
   const cwd = input.cwd || process.cwd();
   const fp = projectFingerprint(cwd);
-  const tcfg = resolveProject(config, fp).triggers.five_hour;
+  const pcfg = resolveProject(config, fp);
+  const tcfg = pcfg.triggers.five_hour;
+  const notification = pcfg.notification || {};
+  const noticeMethod = notification.method ?? 'os';
+  const noticeOpts = { method: noticeMethod, fallback: notification.fallback ?? 'terminal' };
+  const sendNotice = (title, body) => { if (noticeMethod !== 'off') notifyFn(title, body, noticeOpts); };
   const slotKey = generationSlotKey({ agent, sessionId: input.session_id, projectFingerprint: fp });
 
   if (input.stop_hook_active) {
@@ -62,7 +67,7 @@ export async function handleStop({ input, config, readSensor, agent, now = Date.
     const gpath = globalStatePath();
     writeState(gpath, markSeen(readState(gpath), context.dedupeKey, now));
     finishGeneration(slotKey, { now });
-    notifyFn('AI handoff', `Capsule ready for ${capsule.target.agent}`);
+    sendNotice('AI handoff', `Capsule ready for ${capsule.target.agent}`);
     return { action: 'create', reason: 'threshold', taskId: capsule.task_id, fingerprint: fp, degraded };
   }
 
@@ -95,7 +100,7 @@ export async function handleStop({ input, config, readSensor, agent, now = Date.
       now,
       context: { agent, sessionId: input.session_id, cwd, reading, threshold: tcfg.threshold_percent },
     });
-    notifyFn('AI handoff', 'Capsule을 생성할까요? /handoff create | /handoff skip');
+    sendNotice('AI handoff', 'Capsule을 생성할까요? /handoff create | /handoff skip');
     return { action: 'ask', reason: ev.reason, fingerprint: fp, approvalKey: dkey };
   }
 

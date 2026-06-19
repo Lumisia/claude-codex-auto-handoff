@@ -209,13 +209,7 @@ Memory is **explicit**: you save a fact only when you choose to, and only with r
 
 ## Settings
 
-Your settings live in a single file in your OS data directory:
-
-- **Windows:** `%LOCALAPPDATA%\ai-handoff\config.json`
-- **macOS:** `~/Library/Application Support/ai-handoff/config.json`
-- **Linux:** `~/.config/ai-handoff/config.json`
-
-The defaults (see [`config/defaults.json`](config/defaults.json)):
+These are the **defaults**, shipped inside the plugin at [`config/defaults.json`](config/defaults.json):
 
 ```json
 {
@@ -226,13 +220,66 @@ The defaults (see [`config/defaults.json`](config/defaults.json)):
 }
 ```
 
-Common changes:
+> ⚠️ **Do not edit `config/defaults.json`.** It lives inside the installed plugin and is overwritten on every update. Change settings in your own *user config* file instead (below).
 
-- **Hand off automatically:** set `"mode": "auto"`.
-- **Trigger earlier or later:** change `"threshold_percent"` (e.g. `70` or `90`).
-- **Turn it off:** set `"mode": "off"`.
+### Where your settings go
 
-You can also override settings per project.
+Create (or edit) **one** file at the path for your OS:
+
+- **Windows:** `%LOCALAPPDATA%\ai-handoff\config.json`
+- **macOS:** `~/Library/Application Support/ai-handoff/config.json`
+- **Linux:** `~/.local/state/ai-handoff/config.json` (or `$XDG_STATE_HOME/ai-handoff/config.json`)
+
+This file is **deep-merged on top of the defaults**, so include only the keys you want to change — never the whole file.
+
+### How to change a setting — from the agent or by hand
+
+There is **no dedicated in-agent command** for settings; configuration is this JSON file. You have two easy options:
+
+1. **Ask Claude Code or Codex to do it** — e.g. *"edit my ai-handoff config: set mode to auto and turn notifications off."* The agent edits the file for you.
+2. **Edit the file yourself** — open it (create it if it does not exist) and add the keys.
+
+Either way, start a **new** agent session (or run `/reload-plugins` in Claude Code) so the change takes effect.
+
+### Example
+
+A user config that hands off automatically at 75% and turns notifications off — everything else stays at the defaults:
+
+```json
+{
+  "triggers": { "five_hour": { "threshold_percent": 75, "mode": "auto" } },
+  "notification": { "method": "off" }
+}
+```
+
+### Every setting
+
+| Key | Values | Meaning |
+|---|---|---|
+| `triggers.five_hour.enabled` | `true` / `false` | Master switch for the 5-hour trigger. |
+| `triggers.five_hour.threshold_percent` | number, e.g. `80` | Usage % that triggers a handoff. |
+| `triggers.five_hour.mode` | `auto` / `ask` / `off` | Hand off silently / ask once / do nothing. |
+| `capsule.completed_autocreate` | `true` / `false` | Also make a capsule when a task is finished. |
+| `notification.method` | `os` / `terminal` / `off` | OS pop-up / print to the terminal / **send nothing**. |
+| `notification.fallback` | `terminal` / `off` | Used only when `method` is `os` and the OS pop-up fails. |
+| `memory.auto_recall` | `true` / `false` | Recall verified memory on your first prompt. |
+| `memory.auto_recall_token_budget` | number, e.g. `800` | Max tokens of memory to recall. |
+
+> Turning `notification.method` to `off` only silences the OS pop-up — the handoff still happens, and in `ask` mode the agent still shows the prompt in chat.
+
+### Per project
+
+To override any of the above for a single project only, add a `project_overrides` block keyed by that project's fingerprint:
+
+```json
+{
+  "project_overrides": {
+    "<project-fingerprint>": {
+      "triggers": { "five_hour": { "mode": "auto" } }
+    }
+  }
+}
+```
 
 ---
 

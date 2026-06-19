@@ -209,13 +209,7 @@ Claude Code または Codex の中で入力します。両方で同じです。
 
 ## 設定
 
-設定は OS のデータフォルダーにある1つのファイルにまとまっています:
-
-- **Windows:** `%LOCALAPPDATA%\ai-handoff\config.json`
-- **macOS:** `~/Library/Application Support/ai-handoff/config.json`
-- **Linux:** `~/.config/ai-handoff/config.json`
-
-既定値（[`config/defaults.json`](config/defaults.json) を参照）:
+以下は **既定値** で、プラグイン内の [`config/defaults.json`](config/defaults.json) に入っています:
 
 ```json
 {
@@ -226,13 +220,66 @@ Claude Code または Codex の中で入力します。両方で同じです。
 }
 ```
 
-よく変える値:
+> ⚠️ **`config/defaults.json` は編集しないでください。** インストール済みプラグインの中にあり、更新のたびに上書きされます。代わりに、下記の *ユーザー設定* ファイルで設定を変更してください。
 
-- **自動で引き継ぐ:** `"mode": "auto"` に設定。
-- **早め/遅めにトリガー:** `"threshold_percent"` を変更（例: `70` または `90`）。
-- **オフにする:** `"mode": "off"` に設定。
+### 設定ファイルの場所
 
-プロジェクトごとに設定を上書きすることもできます。
+OS に応じたパスにファイルを **1つ** 作成（または編集）します:
+
+- **Windows:** `%LOCALAPPDATA%\ai-handoff\config.json`
+- **macOS:** `~/Library/Application Support/ai-handoff/config.json`
+- **Linux:** `~/.local/state/ai-handoff/config.json`（または `$XDG_STATE_HOME/ai-handoff/config.json`）
+
+このファイルは **既定値の上に deep-merge** されます。変更するキーだけを入れてください——ファイル全体をコピーする必要はありません。
+
+### 設定を変える方法 — エージェント経由、または手動
+
+設定専用の **エージェント内コマンドはありません**。設定はこの JSON ファイルです。簡単な方法は2つ:
+
+1. **Claude Code か Codex に頼む** — 例: *「私の ai-handoff config を編集して: mode を auto に、通知はオフに。」* エージェントが代わりにファイルを編集します。
+2. **自分で編集** — ファイルを開いて（無ければ作成して）キーを追加します。
+
+どちらの場合も、**新しい** エージェントセッションを開始（または Claude Code で `/reload-plugins`）すると変更が反映されます。
+
+### 例
+
+75% で自動引き継ぎし、通知をオフにするユーザー設定——他はすべて既定値のまま:
+
+```json
+{
+  "triggers": { "five_hour": { "threshold_percent": 75, "mode": "auto" } },
+  "notification": { "method": "off" }
+}
+```
+
+### 設定項目の一覧
+
+| キー | 値 | 意味 |
+|---|---|---|
+| `triggers.five_hour.enabled` | `true` / `false` | 5時間トリガーの全体 on/off。 |
+| `triggers.five_hour.threshold_percent` | 数値、例: `80` | 引き継ぎを発動させる使用率%。 |
+| `triggers.five_hour.mode` | `auto` / `ask` / `off` | 静かに引き継ぐ / 一度尋ねる / 何もしない。 |
+| `capsule.completed_autocreate` | `true` / `false` | 作業完了時にもカプセルを作る。 |
+| `notification.method` | `os` / `terminal` / `off` | OS 通知 / ターミナル出力 / **通知しない**。 |
+| `notification.fallback` | `terminal` / `off` | `method` が `os` で OS 通知が失敗したときだけ使用。 |
+| `memory.auto_recall` | `true` / `false` | 最初のプロンプトで検証済みメモリを呼び戻す。 |
+| `memory.auto_recall_token_budget` | 数値、例: `800` | 呼び戻すメモリの最大トークン数。 |
+
+> `notification.method` を `off` にしても **OS 通知だけ** が止まります——引き継ぎは行われ、`ask` モードではエージェントがチャットに確認を表示し続けます。
+
+### プロジェクトごと
+
+上記の設定を特定のプロジェクトだけに適用するには、そのプロジェクトの fingerprint をキーにした `project_overrides` ブロックを追加します:
+
+```json
+{
+  "project_overrides": {
+    "<project-fingerprint>": {
+      "triggers": { "five_hour": { "mode": "auto" } }
+    }
+  }
+}
+```
 
 ---
 

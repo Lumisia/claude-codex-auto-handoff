@@ -22,3 +22,19 @@ export function notify(title, body) {
     return false;
   }
 }
+
+// Route a notification according to the user's `notification` config.
+//   method "os"       → OS notification (falls back to terminal on failure)
+//   method "terminal" → write to the terminal (stderr)
+//   method "off"      → deliver nothing
+export function sendNotification(
+  title, body, { method = 'os', fallback = 'terminal' } = {}, deps = {},
+) {
+  const osNotify = deps.osNotify || notify;
+  const toTerminal = deps.toTerminal || ((t, b) => process.stderr.write(`[handoff] ${t}: ${b}\n`));
+  if (method === 'off') return false;
+  if (method === 'terminal') { toTerminal(title, body); return true; }
+  if (osNotify(title, body)) return true;
+  if (fallback === 'terminal') { toTerminal(title, body); return true; }
+  return false;
+}

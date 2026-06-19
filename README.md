@@ -33,6 +33,7 @@ Everything happens **on your own computer**. There is no cloud server, no backgr
 | **Handoff** | Passing that snapshot from one agent (Claude Code or Codex) to the other. |
 | **Verified memory** | A durable fact about your project that is backed by evidence (a passing test, a command result, a source file) — never a guess. |
 | **Hook** | A small script the agent runs automatically at certain moments (when it starts, when it stops, when you send a prompt). |
+| **Marketplace** | A catalog an agent reads to find and install plugins. This repo is its own one-plugin marketplace. |
 
 ---
 
@@ -52,44 +53,73 @@ node --version
 
 ## Install
 
-First, get the code:
+There are two ways to add the plugin. **Method A** (install from this GitHub repo) is recommended for normal use. **Method B** (load a local folder) is best if you want to read or modify the code first.
+
+### Method A — Install as a plugin (recommended)
+
+This repository is its own **marketplace** named `claude-codex-auto-handoff`, and the plugin inside it is named `ai-handoff`. Adding the marketplace, then installing the plugin, is a two-step process on each agent.
+
+#### Claude Code
+
+Run these inside Claude Code (the `/plugin ...` form), or in your terminal (the `claude plugin ...` form):
+
+```text
+/plugin marketplace add Lumisia/claude-codex-auto-handoff
+/plugin install ai-handoff@claude-codex-auto-handoff
+```
+
+```bash
+claude plugin marketplace add Lumisia/claude-codex-auto-handoff
+claude plugin install ai-handoff@claude-codex-auto-handoff
+```
+
+Then run `/reload-plugins` (or restart Claude Code) to activate it.
+
+#### Codex
+
+```bash
+codex plugin marketplace add Lumisia/claude-codex-auto-handoff
+codex plugin add ai-handoff@claude-codex-auto-handoff
+```
+
+### Method B — Local / development
+
+Clone the repo and load the folder directly. Replace `PATH/TO/claude-codex-auto-handoff` with where you cloned it.
 
 ```bash
 git clone https://github.com/Lumisia/claude-codex-auto-handoff.git
 ```
 
-In the steps below, replace `PATH/TO/claude-codex-auto-handoff` with where you cloned it.
+Claude Code can load the folder without installing:
 
-### Claude Code
+```bash
+claude --plugin-dir PATH/TO/claude-codex-auto-handoff
+```
 
-1. Load the plugin from the folder:
-
-   ```bash
-   claude --plugin-dir PATH/TO/claude-codex-auto-handoff
-   ```
-
-2. Claude needs **one extra setup step** for the usage sensor. (Claude reads usage from its *status line*, and a plugin cannot claim that slot by itself — so you run this once. It safely keeps any status line you already had.)
-
-   ```bash
-   node PATH/TO/claude-codex-auto-handoff/core/cli.mjs setup:claude-statusline --plugin-root PATH/TO/claude-codex-auto-handoff
-   ```
-
-   To undo it later:
-
-   ```bash
-   node PATH/TO/claude-codex-auto-handoff/core/cli.mjs setup:claude-statusline --restore
-   ```
-
-### Codex
+For Codex, add the local clone as a marketplace, then install:
 
 ```bash
 codex plugin marketplace add PATH/TO/claude-codex-auto-handoff
-codex plugin add ai-handoff@<marketplace-name>
+codex plugin add ai-handoff@claude-codex-auto-handoff
+```
+
+### One extra step for Claude Code's sensor (both methods)
+
+Claude reads usage from its **status line**, and a plugin cannot claim that slot by itself — so run this once. It safely keeps any status line you already had:
+
+```bash
+node PATH/TO/claude-codex-auto-handoff/core/cli.mjs setup:claude-statusline --plugin-root PATH/TO/claude-codex-auto-handoff
+```
+
+To undo it later:
+
+```bash
+node PATH/TO/claude-codex-auto-handoff/core/cli.mjs setup:claude-statusline --restore
 ```
 
 (Codex reads usage from its official App Server, so it needs **no** extra sensor setup.)
 
-### After installing (both)
+### After installing (both methods)
 
 Start a **new** agent session, and **review and trust** the lifecycle hooks when prompted. Do not use any "skip hook trust" flag for normal use — the whole point is that you decide to trust them.
 
@@ -113,6 +143,47 @@ Claude Code (80% used)  →  writes capsule  →  you open Codex  →  Codex res
         ↑                                                                  │
         └───────────────────────  and back again, any time  ──────────────┘
 ```
+
+---
+
+## Features
+
+Each feature explained, from the sensor that triggers a handoff to the safety net around it.
+
+### 1. Five-hour usage sensors
+
+The plugin never guesses your usage; it reads it from each tool's real interface.
+
+- **Claude Code** → the **status line** bridge records the used percentage and reset time. If the data is missing or stale, the plugin stays silent rather than acting on a guess.
+- **Codex** → the official **App Server** (`account/rateLimits/read`) is the primary source, with the session **JSONL** rate-limit field as a fallback.
+
+### 2. Automatic capsule handoff
+
+When you cross the threshold, the plugin builds a **capsule**: your goal, decisions, constraints, open issues, next actions, plus the real Git branch/commit and changed files. It is written with an atomic publish (temp file → flush → rename) so a half-written capsule can never be read. A capsule is **immutable** and **integrity-checked** (a hash signs its bytes); the receiving agent claims it with a short lease, verifies it, injects it, and only then marks it **consumed**. Each capsule is used once.
+
+### 3. Three trigger modes
+
+You choose how eager the plugin is, globally or per project: `auto` (hand off silently), `ask` (ask once per usage window), or `off`. The default threshold is **80%**, so the capsule is written while there is still headroom — the semantic write itself costs a little usage.
+
+### 4. Verified memory recall
+
+Separate from the one-use capsule, the plugin keeps a **long-lived memory** of facts about your project — but only facts backed by evidence (a passing test, a command result, a source file). On your first prompt of a session, it recalls only the relevant, evidence-backed memory, within a token budget (default 800). It never stores guesses, hidden reasoning, or whole transcripts.
+
+### 5. Progressive project knowledge
+
+Alongside the capsule, the plugin can carry project guidelines, formats, and gotchas. A thin **INDEX** plus a **manifest** (file hashes + dirty flags) lets the receiving agent read only what actually changed since last time, instead of re-reading everything — saving tokens.
+
+### 6. Skills and commands
+
+Three skills package the behavior: `handoff-ratelimit` (the 5-hour trigger), `handoff-session` (the `/handoff` command family), and `handoff-recover` (diagnostics). They drive the `/handoff` commands listed below.
+
+### 7. Built-in safety
+
+Secrets are redacted before storage, capsules cannot be tampered with, and a capsule is always treated as *reference* material — your current instructions, the repo's policy, the real files, Git, and tests all outrank it. See [Privacy & safety](#privacy--safety).
+
+### 8. Zero-dependency, cross-platform core
+
+The entire core is plain Node (baseline 18) with **no npm dependencies**, so there is nothing to compile and nothing to break on upgrade. It is tested on Node 18/20/22 across Windows, macOS, and Linux.
 
 ---
 
@@ -176,7 +247,7 @@ You can also override settings per project.
 
 ```bash
 npm test                 # unit + integration tests
-npm run validate:package # checks the plugin manifests
+npm run validate:package # checks the plugin + marketplace manifests
 ```
 
 Tests are plain `node --test` with no dependencies. The CI matrix runs them on **Node 18 / 20 / 22** across **Windows, macOS, and Linux**.

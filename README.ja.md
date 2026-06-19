@@ -33,6 +33,7 @@ Claude Code と Codex には、それぞれ **5時間の使用上限** があり
 | **Handoff（引き継ぎ）** | そのスナップショットを一方のエージェント（Claude Code または Codex）からもう一方へ渡すこと。 |
 | **Verified memory（検証済みメモリ）** | 証拠（成功したテスト、コマンドの実行結果、ソースファイル）で裏づけられた、プロジェクトの継続的な事実。推測は決して保存しません。 |
 | **Hook（フック）** | エージェントが特定の瞬間（起動時、停止時、プロンプト送信時）に自動で実行する小さなスクリプト。 |
+| **Marketplace（マーケットプレイス）** | エージェントがプラグインを探して導入するために読むカタログ。このリポジトリ自体が、プラグイン1個のマーケットプレイスです。 |
 
 ---
 
@@ -52,44 +53,73 @@ node --version
 
 ## インストール
 
-まずコードを取得します:
+プラグインを追加する方法は2つあります。通常利用には **方法 A**（この GitHub リポジトリから導入）を推奨します。先にコードを読んだり変更したい場合は **方法 B**（ローカルフォルダーを読み込む）が向いています。
+
+### 方法 A — プラグインとして導入（推奨）
+
+このリポジトリ自体が `claude-codex-auto-handoff` という **マーケットプレイス** で、その中のプラグイン名は `ai-handoff` です。各エージェントで、マーケットプレイスを追加してからプラグインを導入する2段階です。
+
+#### Claude Code
+
+Claude Code の中で（`/plugin ...` 形式）、またはターミナルで（`claude plugin ...` 形式）実行します:
+
+```text
+/plugin marketplace add Lumisia/claude-codex-auto-handoff
+/plugin install ai-handoff@claude-codex-auto-handoff
+```
+
+```bash
+claude plugin marketplace add Lumisia/claude-codex-auto-handoff
+claude plugin install ai-handoff@claude-codex-auto-handoff
+```
+
+そのあと `/reload-plugins` を実行（または Claude Code を再起動）して有効化します。
+
+#### Codex
+
+```bash
+codex plugin marketplace add Lumisia/claude-codex-auto-handoff
+codex plugin add ai-handoff@claude-codex-auto-handoff
+```
+
+### 方法 B — ローカル / 開発用
+
+リポジトリをクローンし、フォルダーを直接読み込みます。`PATH/TO/claude-codex-auto-handoff` はクローンした場所に置き換えてください。
 
 ```bash
 git clone https://github.com/Lumisia/claude-codex-auto-handoff.git
 ```
 
-以下では `PATH/TO/claude-codex-auto-handoff` を、コードを取得した場所に置き換えてください。
+Claude Code はインストールせずにフォルダーを読み込めます:
 
-### Claude Code
+```bash
+claude --plugin-dir PATH/TO/claude-codex-auto-handoff
+```
 
-1. フォルダーからプラグインを読み込みます:
-
-   ```bash
-   claude --plugin-dir PATH/TO/claude-codex-auto-handoff
-   ```
-
-2. Claude は使用量センサーのために **追加の設定が一度だけ** 必要です。（Claude は使用量を *ステータスライン* から読み取りますが、プラグインがその枠を単独で占有できないため、このコマンドを一度実行します。既存のステータスラインがあれば安全に保持します。）
-
-   ```bash
-   node PATH/TO/claude-codex-auto-handoff/core/cli.mjs setup:claude-statusline --plugin-root PATH/TO/claude-codex-auto-handoff
-   ```
-
-   あとで元に戻すには:
-
-   ```bash
-   node PATH/TO/claude-codex-auto-handoff/core/cli.mjs setup:claude-statusline --restore
-   ```
-
-### Codex
+Codex はローカルのクローンをマーケットプレイスとして追加してから導入します:
 
 ```bash
 codex plugin marketplace add PATH/TO/claude-codex-auto-handoff
-codex plugin add ai-handoff@<marketplace-name>
+codex plugin add ai-handoff@claude-codex-auto-handoff
+```
+
+### Claude Code のセンサー用の追加1ステップ（両方法共通）
+
+Claude は使用量を **ステータスライン** から読み取りますが、プラグインがその枠を単独で占有できないため、このコマンドを一度実行します。既存のステータスラインがあれば安全に保持します:
+
+```bash
+node PATH/TO/claude-codex-auto-handoff/core/cli.mjs setup:claude-statusline --plugin-root PATH/TO/claude-codex-auto-handoff
+```
+
+あとで元に戻すには:
+
+```bash
+node PATH/TO/claude-codex-auto-handoff/core/cli.mjs setup:claude-statusline --restore
 ```
 
 （Codex は使用量を公式の App Server から読み取るため、**追加のセンサー設定は不要** です。）
 
-### インストール後（共通）
+### インストール後（両方法共通）
 
 **新しい** エージェントセッションを開始し、案内が出たら lifecycle フックを **確認して信頼** してください。通常利用では「フック信頼のスキップ」フラグを使わないでください——信頼を自分で判断することが、このツールの肝心な点です。
 
@@ -113,6 +143,47 @@ Claude Code (80% 使用)  →  カプセル作成  →  Codex を開く  →  Co
         ↑                                                            │
         └──────────────────  いつでも逆方向にも  ───────────────────┘
 ```
+
+---
+
+## 機能（各機能の説明）
+
+引き継ぎを発動させるセンサーから、その周りの安全網まで、機能ごとに説明します。
+
+### 1. 5時間使用量センサー
+
+プラグインは使用量を推測せず、各ツールの実際のインターフェースから読み取ります。
+
+- **Claude Code** → **ステータスライン** ブリッジが使用率とリセット時刻を記録します。データが無い、または古い場合は、推測で動かず静かに待機します。
+- **Codex** → 公式の **App Server**（`account/rateLimits/read`）が主センサーで、セッション **JSONL** の rate-limit フィールドがフォールバックです。
+
+### 2. 自動カプセル引き継ぎ
+
+しきい値を超えると、プラグインは **カプセル** を作ります: 目標・判断・制約・未解決の課題・次の作業に加え、実際の Git ブランチ/コミットと変更ファイルまで。カプセルはアトミックな公開（一時ファイル → flush → rename）で書き込まれ、書きかけのカプセルが読まれることはありません。カプセルは **不変** で **完全性が検証** されます（ハッシュがバイト列に署名）。受け取る側のエージェントは短いリースで確保し、検証・注入してから初めて **消費済み** と記録します。カプセルは一度だけ使われます。
+
+### 3. 3つのトリガーモード
+
+プラグインの積極性を、全体またはプロジェクトごとに選べます: `auto`（静かに引き継ぐ）、`ask`（使用ウィンドウごとに一度尋ねる）、`off`。既定のしきい値は **80%** なので、余裕があるうちにカプセルを書きます——意味カプセルを書く行為そのものが使用量を少し消費するためです。
+
+### 4. 検証済みメモリの呼び戻し
+
+一度きりのカプセルとは別に、プラグインはプロジェクトに関する **長期メモリ** を保持します——ただし証拠（成功したテスト、コマンド結果、ソースファイル）で裏づけられた事実だけ。セッションの最初のプロンプトで、関連かつ証拠のあるメモリだけをトークン予算（既定 800）の範囲で呼び戻します。推測・隠れた推論・会話の全文は決して保存しません。
+
+### 5. 段階的なプロジェクト知識
+
+カプセルと一緒に、プロジェクトの指針・書式・落とし穴も運べます。薄い **INDEX** と **manifest**（ファイルハッシュ + dirty フラグ）により、受け取る側は全部を読み直さず、前回以降に **実際に変わったものだけ** を読みます——トークン節約。
+
+### 6. スキルとコマンド
+
+3つのスキルが挙動をまとめます: `handoff-ratelimit`（5時間トリガー）、`handoff-session`（`/handoff` コマンド群）、`handoff-recover`（診断）。これらが下記の `/handoff` コマンドを駆動します。
+
+### 7. 組み込みの安全策
+
+保存前に秘密情報が伏せられ、カプセルは改ざんできず、カプセルは常に *参考* 資料として扱われます——現在のユーザー指示、リポジトリのポリシー、実際のファイル、Git、テストがすべてカプセルより上位です。[プライバシーと安全性](#プライバシーと安全性) を参照。
+
+### 8. 依存ゼロ・クロスプラットフォームのコア
+
+コア全体が純粋な Node（基準 18）で、**npm 依存はありません**。コンパイルするものも、アップグレードで壊れるものもありません。Windows・macOS・Linux 上で Node 18/20/22 でテストされています。
 
 ---
 
@@ -176,7 +247,7 @@ Claude Code または Codex の中で入力します。両方で同じです。
 
 ```bash
 npm test                 # 単体 + 結合テスト
-npm run validate:package # プラグインマニフェストの検査
+npm run validate:package # プラグイン + マーケットプレイスのマニフェストを検査
 ```
 
 テストは依存ゼロの純粋な `node --test` です。CI マトリクスは **Windows, macOS, Linux** 上で **Node 18 / 20 / 22** を実行します。

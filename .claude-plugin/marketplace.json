@@ -1,0 +1,12 @@
+{
+  "name": "claude-codex-auto-handoff",
+  "owner": { "name": "Lumisia" },
+  "description": "Automatic, integrity-checked handoff and verified memory recall between Claude Code and Codex.",
+  "plugins": [
+    {
+      "name": "ai-handoff",
+      "source": "./",
+      "description": "Automatic, integrity-checked task handoff and verified memory recall between Claude Code and Codex when either nears its 5-hour usage limit."
+    }
+  ]
+}

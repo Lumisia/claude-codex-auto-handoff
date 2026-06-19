@@ -12,6 +12,15 @@ test('Claude and Codex manifests expose the same plugin version', () => {
   assert.equal(codex.version, claude.version);
 });
 
+test('both marketplace manifests list the plugin under the repo marketplace name', () => {
+  const claudeMarket = json('../.claude-plugin/marketplace.json');
+  const codexMarket = json('../.agents/plugins/marketplace.json');
+  for (const market of [claudeMarket, codexMarket]) {
+    assert.equal(market.name, 'claude-codex-auto-handoff');
+    assert.ok(market.plugins.some((entry) => entry.name === 'ai-handoff'));
+  }
+});
+
 test('shared hooks wire both automatic directions and memory recall', () => {
   const hooks = json('../hooks/hooks.json').hooks;
   assert.ok(hooks.SessionStart);

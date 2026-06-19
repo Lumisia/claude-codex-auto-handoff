@@ -1,0 +1,9 @@
+{
+  "triggers": {
+    "five_hour": { "enabled": true, "threshold_percent": 80, "mode": "ask" }
+  },
+  "capsule": { "completed_autocreate": false, "semantic_retry_limit": 0 },
+  "notification": { "method": "os", "fallback": "terminal" },
+  "handoff": { "target": "other-agent", "launcher": "notify", "already_running_requires_manual": true },
+  "memory": { "auto_recall": true, "auto_recall_token_budget": 800 }
+}

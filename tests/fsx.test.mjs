@@ -1,0 +1,26 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtempSync, readFileSync, readdirSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { writeFileAtomic, acquireLock, releaseLock } from '../core/lib/fsx.mjs';
+
+test('writeFileAtomic writes data and leaves no temp file', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ah-fsx-'));
+  const f = join(dir, 'sub', 'out.json');
+  writeFileAtomic(f, '{"x":1}');
+  assert.equal(readFileSync(f, 'utf8'), '{"x":1}');
+  assert.deepEqual(readdirSync(join(dir, 'sub')), ['out.json']);
+});
+
+test('acquireLock blocks a second holder until lease expires', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ah-lock-'));
+  const lp = join(dir, '.lock');
+  const a = acquireLock(lp, { leaseMs: 1000, now: 1000 });
+  assert.ok(a);
+  assert.equal(acquireLock(lp, { leaseMs: 1000, now: 1500 }), null);
+  const c = acquireLock(lp, { leaseMs: 1000, now: 3000 });
+  assert.ok(c);
+  releaseLock(c);
+  assert.ok(acquireLock(lp, { leaseMs: 1000, now: 4000 }));
+});

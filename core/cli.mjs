@@ -1,5 +1,6 @@
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { existsSync } from 'node:fs';
 import { codexHome, newestSessionFile } from './lib/sessions.mjs';
 import { readJsonlRateLimit } from './sensors/codex-jsonl.mjs';
 import { readAppServerRateLimit } from './sensors/codex-appserver.mjs';
@@ -11,6 +12,9 @@ import {
 } from './hooks/session-start.mjs';
 import { loadConfig } from './lib/config.mjs';
 import { configPath } from './lib/paths.mjs';
+import {
+  setConfigValue, unsetConfigValue, getAt, knownKeys,
+} from './lib/config-edit.mjs';
 import {
   statusFor, previewFor, createFromApproval, skipApproval, recoverFor,
 } from './hooks/handoff.mjs';
@@ -220,6 +224,31 @@ async function setupClaudeStatusline(args) {
   await writeStdout(JSON.stringify(result) + '\n');
 }
 
+async function configShow() {
+  const path = configPath();
+  await writeStdout(JSON.stringify({
+    path, exists: existsSync(path), keys: knownKeys(), config: loadConfig({ path }),
+  }, null, 2) + '\n');
+}
+
+async function configGet() {
+  const input = JSON.parse((await readStdin()) || '{}');
+  const config = loadConfig({ path: configPath() });
+  await writeStdout(JSON.stringify({ key: input.key, value: getAt(config, input.key) }) + '\n');
+}
+
+async function configSet() {
+  const input = JSON.parse((await readStdin()) || '{}');
+  const result = setConfigValue(configPath(), input.key, input.value);
+  await writeStdout(JSON.stringify({ ok: true, ...result, path: configPath() }) + '\n');
+}
+
+async function configUnset() {
+  const input = JSON.parse((await readStdin()) || '{}');
+  const result = unsetConfigValue(configPath(), input.key);
+  await writeStdout(JSON.stringify({ ok: true, ...result, path: configPath() }) + '\n');
+}
+
 const [command, ...rest] = process.argv.slice(2);
 const commands = {
   'sensor:ratelimit': sensorRatelimit,
@@ -237,6 +266,10 @@ const commands = {
   'memory:remember': memoryRemember,
   'memory:recall': memoryRecall,
   'setup:claude-statusline': setupClaudeStatusline,
+  'config:show': configShow,
+  'config:get': configGet,
+  'config:set': configSet,
+  'config:unset': configUnset,
 };
 
 const run = commands[command];

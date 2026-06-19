@@ -1,6 +1,6 @@
 ---
 description: Resume, create, diagnose, or recall a cross-agent handoff
-argument-hint: "[status|preview|checkpoint|create|skip|recover|remember|recall]"
+argument-hint: "[status|preview|checkpoint|create|skip|recover|remember|recall|config]"
 ---
 
 Use the handoff-session skill to handle `/handoff $ARGUMENTS`.

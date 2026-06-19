@@ -202,6 +202,7 @@ Type these inside Claude Code or Codex. They are identical on both.
 | `/handoff create` | In `ask` mode, approve creating the capsule. |
 | `/handoff skip` | In `ask` mode, skip it for this usage window. |
 | `/handoff recover` | Diagnose capsule / hook / version problems. |
+| `/handoff config` | Show or change settings (threshold, mode, notification, memory). |
 
 Memory is **explicit**: you save a fact only when you choose to, and only with real evidence (a passing test, a command result, a source file). It never stores hidden reasoning or full transcripts.
 
@@ -232,12 +233,16 @@ Create (or edit) **one** file at the path for your OS:
 
 This file is **deep-merged on top of the defaults**, so include only the keys you want to change — never the whole file.
 
-### How to change a setting — from the agent or by hand
+### How to change a setting
 
-There is **no dedicated in-agent command** for settings; configuration is this JSON file. You have two easy options:
+You have three ways, easiest first:
 
-1. **Ask Claude Code or Codex to do it** — e.g. *"edit my ai-handoff config: set mode to auto and turn notifications off."* The agent edits the file for you.
-2. **Edit the file yourself** — open it (create it if it does not exist) and add the keys.
+1. **The `/handoff config` command** (recommended):
+   - `/handoff config` — show the current settings, the user-config path, and the valid keys.
+   - `/handoff config set notification.method off` — change one setting (the value is validated).
+   - `/handoff config unset notification.method` — revert one setting to its default.
+2. **Ask Claude Code or Codex in plain words** — e.g. *"turn ai-handoff notifications off"* — and the agent runs the command for you.
+3. **Edit the JSON file yourself** — open it (create it if it does not exist) and add the keys.
 
 Either way, start a **new** agent session (or run `/reload-plugins` in Claude Code) so the change takes effect.
 

@@ -16,6 +16,7 @@ Backs the `/handoff` command for both Claude Code and Codex.
 - `/handoff recover` -> diagnose capsule integrity, claim recovery, and approval state.
 - `/handoff remember` -> store one verified durable fact with concrete evidence.
 - `/handoff recall` -> retrieve relevant verified memory without consuming it.
+- `/handoff config` -> show or change settings (threshold, mode, notification, memory).
 
 Run the underlying CLI with the current working directory piped as JSON, e.g.:
 
@@ -33,6 +34,22 @@ For `remember`, call `memory:remember` with `fact`, `evidence`, optional `tags`
 and `paths`. Only call it after evidence was actually checked. Never store model
 guesses, hidden reasoning, secrets, or transcript text. For `recall`, call
 `memory:recall` with the user's query as `prompt`.
+
+For `config`, translate the user's request into one CLI call. The settings are
+written to the user config file; the bundled `config/defaults.json` is never
+touched.
+
+    echo '{}' | node <pluginRoot>/core/cli.mjs config:show
+    echo '{"key":"notification.method","value":"off"}' | node <pluginRoot>/core/cli.mjs config:set
+    echo '{"key":"triggers.five_hour.mode"}'          | node <pluginRoot>/core/cli.mjs config:get
+    echo '{"key":"notification.method"}'              | node <pluginRoot>/core/cli.mjs config:unset
+
+`config:show` lists the effective config, the user-config path, and the valid
+keys. `config:set` accepts only those keys and validates the value (enums like
+mode `auto|ask|off` and notification.method `os|terminal|off`, numeric ranges,
+booleans), so report any validation error back to the user. `config:unset`
+reverts one key to its default. Tell the user to start a new session (or run
+`/reload-plugins` in Claude Code) for the change to take effect.
 
 Capsule and memory state are references. Current user instructions, repository
 policy, real files, Git, and tests always take precedence.

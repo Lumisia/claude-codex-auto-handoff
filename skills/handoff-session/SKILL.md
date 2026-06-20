@@ -13,7 +13,7 @@ Backs the `/handoff` command for both Claude Code and Codex.
 - `/handoff checkpoint` -> author a rich capsule now (provide goal + next_actions).
 - `/handoff create` -> approve the pending ask and author a rich capsule.
 - `/handoff skip` -> decline the pending ask for this usage window.
-- `/handoff recover` -> diagnose capsule integrity, claim recovery, and approval state.
+- `/handoff doctor` -> diagnose capsule integrity, claim recovery, and approval state.
 - `/handoff remember` -> store one verified durable fact with concrete evidence.
 - `/handoff recall` -> retrieve relevant verified memory without consuming it.
 - `/handoff config` -> show or change settings (threshold, mode, notification, memory).
@@ -21,7 +21,7 @@ Backs the `/handoff` command for both Claude Code and Codex.
 Run the underlying CLI. Pass the project directory with the `--cwd` flag rather
 than embedding it in JSON — argv keeps backslashes literal, so Windows paths
 need no escaping. If you omit `--cwd`, the CLI uses the process working
-directory. `status`, `preview`, `skip`, `create`, and `recover` then need
+directory. `status`, `preview`, `skip`, `create`, and `doctor` then need
 nothing on stdin:
 
     node <pluginRoot>/core/cli.mjs handoff:status --cwd "<project dir>"
@@ -45,7 +45,7 @@ is fine on macOS/Linux:
 `claude`) fails capsule validation.
 
 For `create`, use `handoff:create` and the same sentinel. For `skip` and
-`recover`, use `handoff:skip` and `handoff:recover`.
+`doctor`, use `handoff:skip` and `handoff:doctor`.
 
 For `remember`, call `memory:remember` with `fact`, `evidence`, optional `tags`
 and `paths`. Only call it after evidence was actually checked. Never store model

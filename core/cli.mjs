@@ -16,7 +16,7 @@ import {
   setConfigValue, unsetConfigValue, getAt, knownKeys,
 } from './lib/config-edit.mjs';
 import {
-  statusFor, previewFor, createFromApproval, skipApproval, recoverFor,
+  statusFor, previewFor, createFromApproval, skipApproval, doctorFor,
 } from './hooks/handoff.mjs';
 import { buildCheckpointCapsule } from './capsule/checkpoint.mjs';
 import { publishCapsule } from './capsule/store.mjs';
@@ -197,9 +197,9 @@ async function handoffSkip(args) {
   await writeStdout(JSON.stringify(skipApproval({ cwd: input.cwd || process.cwd() })) + '\n');
 }
 
-async function handoffRecover(args) {
+async function handoffDoctor(args) {
   const input = await readInput(args);
-  await writeStdout(JSON.stringify(recoverFor(input.cwd || process.cwd()), null, 2) + '\n');
+  await writeStdout(JSON.stringify(doctorFor(input.cwd || process.cwd()), null, 2) + '\n');
 }
 
 async function hookUserPrompt(args) {
@@ -286,7 +286,7 @@ const commands = {
   'handoff:checkpoint': handoffCheckpoint,
   'handoff:create': handoffCreate,
   'handoff:skip': handoffSkip,
-  'handoff:recover': handoffRecover,
+  'handoff:doctor': handoffDoctor,
   'memory:remember': memoryRemember,
   'memory:recall': memoryRecall,
   'setup:claude-statusline': setupClaudeStatusline,

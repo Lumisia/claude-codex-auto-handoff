@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { statusFor, previewFor, recoverFor } from '../core/hooks/handoff.mjs';
+import { statusFor, previewFor, doctorFor } from '../core/hooks/handoff.mjs';
 import { projectFingerprint } from '../core/lib/fingerprint.mjs';
 import { publishCapsule, findPendingCapsule } from '../core/capsule/store.mjs';
 import { buildCapsule } from '../core/capsule/create.mjs';
@@ -43,11 +43,11 @@ test('no pending → not pending', () => withRoot(() => {
   assert.equal(previewFor(cwd).pending, false);
 }));
 
-test('recover diagnoses pending capsule integrity without consuming it', () => withRoot(() => {
+test('doctor diagnoses pending capsule integrity without consuming it', () => withRoot(() => {
   const cwd = mkdtempSync(join(tmpdir(), 'ah-proj-'));
   const fp = projectFingerprint(cwd);
   publishCapsule(fp, cap(fp), { now: 1 });
-  const result = recoverFor(cwd, { now: 2 });
+  const result = doctorFor(cwd, { now: 2 });
   assert.equal(result.healthy, true);
   assert.equal(result.pending.status, 'AVAILABLE');
   assert.deepEqual(result.issues, []);

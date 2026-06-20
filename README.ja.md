@@ -177,7 +177,7 @@ Claude Code (80% 使用)  →  カプセル作成  →  Codex を開く  →  Co
 
 ### 6. スキルとコマンド
 
-3つのスキルが挙動をまとめます: `handoff-ratelimit`（5時間トリガー）、`handoff-session`（`/handoff` コマンド群）、`handoff-recover`（診断）。これらが下記の `/handoff` コマンドを駆動します。
+3つのスキルが挙動をまとめます: `handoff-ratelimit`（5時間トリガー）、`handoff-session`（`/handoff` コマンド群）、`handoff-doctor`（診断）。これらが下記の `/handoff` コマンドを駆動します。
 
 ### 7. 組み込みの安全策
 
@@ -201,7 +201,7 @@ Claude Code (80% 使用)  →  カプセル作成  →  Codex を開く  →  Co
 | `/handoff checkpoint` | いますぐカプセルを手動保存します。 |
 | `/handoff create` | `ask` モードでカプセル作成を承認します。 |
 | `/handoff skip` | `ask` モードで今回の使用ウィンドウをスキップします。 |
-| `/handoff recover` | カプセル / フック / バージョンの問題を診断します。 |
+| `/handoff doctor` | カプセル / フック / バージョンの問題を診断します。 |
 | `/handoff config` | 設定の表示/変更（しきい値・モード・通知・メモリ）。 |
 
 メモリは **明示的** です: 自分で選んだときだけ、しかも実際の証拠（成功したテスト、コマンド結果、ソースファイル）があるときだけ事実を保存します。隠れた推論や会話の全文は決して保存しません。

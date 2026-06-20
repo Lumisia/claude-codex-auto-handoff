@@ -1,8 +1,11 @@
-import { projectFingerprint } from '../lib/fingerprint.mjs';
+import { projectFingerprint, projectFingerprintInfo } from '../lib/fingerprint.mjs';
+import { readdirSync, readFileSync, existsSync, realpathSync } from 'node:fs';
+import { join } from 'node:path';
 import { findPendingCapsule, verifyStoredCapsule } from '../capsule/store.mjs';
 import { publishCapsule } from '../capsule/store.mjs';
 import { findApproval, resolveApproval } from '../capsule/approval.mjs';
 import { buildCheckpointCapsule } from '../capsule/checkpoint.mjs';
+import { dataRoot } from '../lib/paths.mjs';
 
 export function statusFor(cwd) {
   const fp = projectFingerprint(cwd);
@@ -72,8 +75,39 @@ export function previewFor(cwd) {
   };
 }
 
-export function recoverFor(cwd, { now = Date.now() } = {}) {
-  const fingerprint = projectFingerprint(cwd);
+function scanOtherPending(currentFp) {
+  const projects = join(dataRoot(), 'projects');
+  const out = [];
+  let names = [];
+  try { names = readdirSync(projects); } catch { return out; }
+  for (const fp of names) {
+    if (fp === currentFp) continue;
+    const hdir = join(projects, fp, 'handoff');
+    let tasks = [];
+    try { tasks = readdirSync(hdir); } catch { continue; }
+    for (const taskId of tasks) {
+      const statePath = join(hdir, taskId, 'state.json');
+      const capPath = join(hdir, taskId, 'capsule.json');
+      if (!existsSync(statePath) || !existsSync(capPath)) continue;
+      let state; let cap;
+      try { state = JSON.parse(readFileSync(statePath, 'utf8')); cap = JSON.parse(readFileSync(capPath, 'utf8')); }
+      catch { continue; }
+      if (state.status !== 'AVAILABLE' && state.status !== 'DEGRADED_AVAILABLE') continue;
+      out.push({
+        fingerprint: fp, taskId,
+        goal: cap.task && cap.task.goal,
+        source: cap.source && cap.source.agent,
+        branch: cap.project && cap.project.git_branch,
+      });
+    }
+  }
+  return out;
+}
+
+export function doctorFor(cwd, { now = Date.now() } = {}) {
+  const { fingerprint, basis } = projectFingerprintInfo(cwd);
+  let cwdResolved = cwd;
+  try { cwdResolved = realpathSync(cwd); } catch {}
   const pending = findPendingCapsule(fingerprint, { now });
   const approval = findApproval(fingerprint);
   const issues = [];
@@ -84,6 +118,9 @@ export function recoverFor(cwd, { now = Date.now() } = {}) {
   }
   return {
     fingerprint,
+    basis,
+    cwdResolved,
+    dataRoot: dataRoot(),
     healthy: issues.length === 0,
     issues,
     pending: pending ? {
@@ -93,5 +130,6 @@ export function recoverFor(cwd, { now = Date.now() } = {}) {
       verified: verified?.valid ?? false,
     } : null,
     approval: approval ? { key: approval.key, status: approval.status } : null,
+    otherPending: scanOtherPending(fingerprint),
   };
 }

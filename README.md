@@ -177,7 +177,7 @@ Alongside the capsule, the plugin can carry project guidelines, formats, and got
 
 ### 6. Skills and commands
 
-Three skills package the behavior: `handoff-ratelimit` (the 5-hour trigger), `handoff-session` (the `/handoff` command family), and `handoff-recover` (diagnostics). They drive the `/handoff` commands listed below.
+Three skills package the behavior: `handoff-ratelimit` (the 5-hour trigger), `handoff-session` (the `/handoff` command family), and `handoff-doctor` (diagnostics). They drive the `/handoff` commands listed below.
 
 ### 7. Built-in safety
 
@@ -201,7 +201,7 @@ The entire core is plain Node (baseline 18) with **no npm dependencies**, so the
 | `/handoff checkpoint` | Manually save a capsule right now. |
 | `/handoff create` | In `ask` mode, approve creating the capsule. |
 | `/handoff skip` | In `ask` mode, skip it for this usage window. |
-| `/handoff recover` | Diagnose capsule / hook / version problems. |
+| `/handoff doctor` | Diagnose capsule / hook / version problems. |
 | `/handoff config` | Show or change settings (threshold, mode, notification, memory). |
 
 Memory is **explicit**: you save a fact only when you choose to, and only with real evidence (a passing test, a command result, a source file). It never stores hidden reasoning or full transcripts.

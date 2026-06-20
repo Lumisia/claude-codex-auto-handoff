@@ -7,5 +7,6 @@
   "handoff": { "target": "other-agent", "launcher": "notify", "already_running_requires_manual": true },
   "memory": { "auto_recall": true, "auto_recall_token_budget": 800 },
   "sensors": { "claude": { "freshness_ms": 120000 } },
-  "statusline": { "show_handoff": true }
+  "statusline": { "show_handoff": true },
+  "locale": "en"
 }

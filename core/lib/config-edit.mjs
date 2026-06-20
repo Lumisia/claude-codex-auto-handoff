@@ -16,6 +16,7 @@ export const CONFIG_KEYS = {
   'memory.auto_recall': { type: 'boolean' },
   'memory.auto_recall_token_budget': { type: 'number', min: 1 },
   'statusline.show_handoff': { type: 'boolean' },
+  'locale': { type: 'enum', values: ['en', 'ko', 'ja', 'zh'] },
 };
 
 function isObject(v) { return v && typeof v === 'object' && !Array.isArray(v); }

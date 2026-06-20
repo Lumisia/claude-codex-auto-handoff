@@ -1,7 +1,9 @@
 {
   "name": "ai-handoff",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "Automatic, integrity-checked handoff and verified memory recall between Claude Code and Codex.",
-  "author": { "name": "ai-handoff contributors" },
+  "author": {
+    "name": "ai-handoff contributors"
+  },
   "license": "MIT"
 }

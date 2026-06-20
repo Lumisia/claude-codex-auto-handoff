@@ -191,7 +191,7 @@ Claude Code (80% 使用)  →  カプセル作成  →  Codex を開く  →  Co
 
 ## コマンド
 
-> ⚠️ **Claude Code では、プラグインのコマンドはプラグイン名で名前空間化されます。** bare `/handoff` ではなく **`/ai-handoff:handoff`** と入力してください — 例: `/ai-handoff:handoff status`。（bare `/handoff` は *"Unknown command"* になります。）下の表は読みやすさのため短い `/handoff` 形式で書いています。**Codex** では handoff の動作はバンドルされたスキルから提供され、model-invoked です — 普通の言葉で頼んでください（例: *「私の ai-handoff の状態を見せて」*、*「handoff を再開して」*）。
+> ⚠️ **Claude Code では、プラグインのコマンドはプラグイン名で名前空間化されます。** 下の各アクションはスラッシュメニューに **`/ai-handoff:handoff-<アクション>`** として個別に表示されます — 例: `/ai-handoff:handoff-status`、`/ai-handoff:handoff-config set notification.method off`。bare **`/ai-handoff:handoff`** は待機中のカプセルを再開します（`/ai-handoff:handoff <アクション>` 形式も受け付けます）。bare `/handoff` は *"Unknown command"* になります。下の表は読みやすさのため短い `/handoff <アクション>` 形式で書いています。**Codex** ではこれらのアクションはバンドルされたスキルから提供され、model-invoked です — 普通の言葉で頼んでください（例: *「私の ai-handoff の状態を見せて」*）。
 
 | コマンド | 動作 |
 |---|---|

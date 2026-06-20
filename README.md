@@ -191,7 +191,7 @@ The entire core is plain Node (baseline 18) with **no npm dependencies**, so the
 
 ## Commands
 
-> ⚠️ **In Claude Code, plugin commands are namespaced by the plugin name.** Type **`/ai-handoff:handoff`** — for example `/ai-handoff:handoff status` — not a bare `/handoff` (that returns *"Unknown command"*). The table below uses the short `/handoff` form for readability. In **Codex**, the handoff actions come from the bundled skills and are model-invoked: just ask in plain language (e.g. *"show my ai-handoff status"* or *"resume the handoff"*).
+> ⚠️ **In Claude Code, plugin commands are namespaced by the plugin name.** Each action below is its own entry in the slash menu as **`/ai-handoff:handoff-<action>`** — e.g. `/ai-handoff:handoff-status`, `/ai-handoff:handoff-config set notification.method off`. The bare **`/ai-handoff:handoff`** resumes a pending capsule (it also accepts `/ai-handoff:handoff <action>`). A bare `/handoff` returns *"Unknown command"*. The table below uses the short `/handoff <action>` form for readability. In **Codex**, these actions come from the bundled skills and are model-invoked — just ask in plain language (e.g. *"show my ai-handoff status"*).
 
 | Command | What it does |
 |---|---|

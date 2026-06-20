@@ -10,16 +10,26 @@ function git(cwd, args) {
   }
 }
 
-export function projectFingerprint(cwd) {
+export function projectFingerprintInfo(cwd) {
   let basis = null;
   const url = git(cwd, ['config', '--get', 'remote.origin.url']);
-  if (url) basis = 'remote:' + url;
+  if (url) basis = { type: 'remote', value: 'remote:' + url };
   if (!basis) {
     const root = git(cwd, ['rev-parse', '--show-toplevel']);
-    if (root) { try { basis = 'gitroot:' + realpathSync(root); } catch { basis = 'gitroot:' + root; } }
+    if (root) {
+      let resolved = root;
+      try { resolved = realpathSync(root); } catch {}
+      basis = { type: 'gitroot', value: 'gitroot:' + resolved };
+    }
   }
   if (!basis) {
-    try { basis = 'path:' + realpathSync(cwd); } catch { basis = 'path:' + cwd; }
+    let resolved = cwd;
+    try { resolved = realpathSync(cwd); } catch {}
+    basis = { type: 'path', value: 'path:' + resolved };
   }
-  return sha256Hex(basis).slice(0, 24);
+  return { fingerprint: sha256Hex(basis.value).slice(0, 24), basis };
+}
+
+export function projectFingerprint(cwd) {
+  return projectFingerprintInfo(cwd).fingerprint;
 }

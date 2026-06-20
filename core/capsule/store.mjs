@@ -1,4 +1,4 @@
-import { join } from 'node:path';
+import { join, basename, dirname } from 'node:path';
 import { existsSync, readFileSync, readdirSync, statSync, unlinkSync } from 'node:fs';
 import { handoffDir } from '../lib/paths.mjs';
 import { writeFileAtomic, acquireLock, releaseLock, ownsLock } from '../lib/fsx.mjs';
@@ -6,6 +6,7 @@ import { sha256Hex } from '../lib/hash.mjs';
 import { transition } from './lifecycle.mjs';
 import { validateCapsule, capsulePayloadHash } from './create.mjs';
 import { refreshProjectIndex } from '../project/index-store.mjs';
+import { appendHistory } from './history.mjs';
 
 function taskDir(fingerprint, taskId) { return join(handoffDir(fingerprint), taskId); }
 const PENDING = new Set(['AVAILABLE', 'DEGRADED_AVAILABLE']);
@@ -50,6 +51,11 @@ export function publishCapsule(fingerprint, capsule, { status = 'AVAILABLE', now
     writeFileAtomic(shaPath, sha256Hex(text) + '\n');
     refreshProjectIndex(fingerprint, capsule.task_id, { now });
     writeState(statePath, { status, task_id: capsule.task_id, updated_at: now });
+    appendHistory(fingerprint, {
+      event: 'created', taskId: capsule.task_id,
+      agent: capsule.source?.agent, source: capsule.source?.agent, target: capsule.target?.agent,
+      trigger: capsule.trigger?.type, observed_percent: capsule.trigger?.observed_percent ?? null,
+    }, { now });
     expireOtherPending(fingerprint, capsule.task_id, { now });
     return { dir, capsulePath, statePath };
   } finally {
@@ -121,6 +127,8 @@ export function consumeCapsule(claim, { now = Date.now() } = {}) {
   const next = { ...st, status: transition(st.status, 'CONSUMED'), consumed_at: now };
   delete next.claim_expires_at;
   writeState(claim.statePath, next);
+  const fp = basename(dirname(dirname(dirname(claim.statePath))));
+  appendHistory(fp, { event: 'resumed', taskId: next.task_id ?? st.task_id }, { now });
   releaseLock(claim.lock);
 }
 

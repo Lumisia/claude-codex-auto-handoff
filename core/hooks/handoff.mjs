@@ -1,4 +1,5 @@
 import { projectFingerprint, projectFingerprintInfo } from '../lib/fingerprint.mjs';
+import { appendHistory } from '../capsule/history.mjs';
 import { readdirSync, readFileSync, existsSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import { findPendingCapsule, verifyStoredCapsule } from '../capsule/store.mjs';
@@ -47,6 +48,7 @@ export function createFromApproval({ cwd, sentinel = {}, now = Date.now() }) {
     },
   });
   publishCapsule(fp, capsule, { status: semantic ? 'AVAILABLE' : 'DEGRADED_AVAILABLE', now });
+  appendHistory(fp, { event: 'created_from_approval', taskId: capsule.task_id, agent: context.agent }, { now });
   return { created: true, taskId: capsule.task_id, fingerprint: fp, degraded: !semantic };
 }
 
@@ -55,6 +57,7 @@ export function skipApproval({ cwd, now = Date.now() }) {
   const approval = findApproval(fp);
   if (!approval) return { skipped: false, reason: 'no-awaiting-approval' };
   resolveApproval(fp, { key: approval.key, decision: 'skip', now });
+  appendHistory(fp, { event: 'skipped', key: approval.key }, { now });
   return { skipped: true, fingerprint: fp };
 }
 

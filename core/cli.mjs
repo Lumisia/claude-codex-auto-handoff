@@ -28,6 +28,7 @@ import { buildMemoryShard, storeMemoryShard, readVerifiedShards } from './memory
 import { rankMemoryShards, renderMemoryRecall } from './memory/recall.mjs';
 import { prepareUserPrompt, finalizeUserPrompt } from './hooks/user-prompt.mjs';
 import { projectFingerprint } from './lib/fingerprint.mjs';
+import { readHistory } from './capsule/history.mjs';
 import { gitContext } from './lib/gitctx.mjs';
 
 function writeStdout(text) {
@@ -202,6 +203,13 @@ async function handoffDoctor(args) {
   await writeStdout(JSON.stringify(doctorFor(input.cwd || process.cwd()), null, 2) + '\n');
 }
 
+async function handoffHistory(args) {
+  const input = await readInput(args);
+  const limit = Number(argValue(args, '--limit', '20')) || 20;
+  const fp = projectFingerprint(input.cwd || process.cwd());
+  await writeStdout(JSON.stringify(readHistory(fp, { limit }), null, 2) + '\n');
+}
+
 async function hookUserPrompt(args) {
   const input = await readInput(args);
   const config = loadConfig({ path: configPath() });
@@ -287,6 +295,7 @@ const commands = {
   'handoff:create': handoffCreate,
   'handoff:skip': handoffSkip,
   'handoff:doctor': handoffDoctor,
+  'handoff:history': handoffHistory,
   'memory:remember': memoryRemember,
   'memory:recall': memoryRecall,
   'setup:claude-statusline': setupClaudeStatusline,

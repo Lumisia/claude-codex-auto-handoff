@@ -80,6 +80,16 @@ test('handoff:create resolves persisted ask state and publishes capsule', () => 
   assert.equal(JSON.parse(run(['handoff:status'], JSON.stringify({ cwd }), env)).pending, true);
 });
 
+test('handoff:history records created then resumed', () => {
+  const root = mkdtempSync(join(tmpdir(), 'ah-cliH-'));
+  const cwd = mkdtempSync(join(tmpdir(), 'ah-proj-'));
+  const env = { AI_HANDOFF_ROOT: root };
+  run(['handoff:checkpoint', '--agent', 'codex'], JSON.stringify({ cwd, session_id: 's', sentinel: { goal: 'g' } }), env);
+  run(['handoff:resume', '--agent', 'claude-code'], JSON.stringify({ cwd }), env);
+  const hist = JSON.parse(run(['handoff:history', '--cwd', cwd], '', env));
+  assert.deepEqual(hist.map((h) => h.event), ['created', 'resumed']);
+});
+
 test('memory:remember stores evidence and memory:recall returns only relevant memory', () => {
   const root = mkdtempSync(join(tmpdir(), 'ah-cliH-'));
   const cwd = mkdtempSync(join(tmpdir(), 'ah-proj-'));

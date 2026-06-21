@@ -7,15 +7,11 @@ import { fileURLToPath } from 'node:url';
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const files = [
   'skills/handoff-ratelimit/SKILL.md',
-  'skills/handoff-session/SKILL.md',
   'skills/handoff-doctor/SKILL.md',
   'skills/handoff/SKILL.md',
-  'skills/handoff-status/SKILL.md',
-  'skills/handoff-preview/SKILL.md',
   'skills/handoff-checkpoint/SKILL.md',
-  'skills/handoff-create/SKILL.md',
-  'skills/handoff-skip/SKILL.md',
   'skills/handoff-config/SKILL.md',
+  'skills/handoff-recent/SKILL.md',
 ];
 
 test('skill files exist with frontmatter', () => {

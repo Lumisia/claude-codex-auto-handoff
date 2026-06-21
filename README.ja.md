@@ -181,7 +181,7 @@ Claude Code (80% 使用)  →  カプセル作成  →  Codex を開く  →  Co
 
 ### 6. スキルとコマンド
 
-3つのスキルが挙動をまとめます: `handoff-ratelimit`（5時間トリガー）、`handoff-session`（`/handoff` コマンド群）、`handoff-doctor`（診断）。これらが下記の `/handoff` コマンドを駆動します。
+3つのスキルが挙動をまとめます: `handoff-ratelimit`（5時間トリガー）、`handoff`（`/handoff` コマンド群）、`handoff-doctor`（診断）。これらが下記の `/handoff` コマンドを駆動します。
 
 ### 7. 組み込みの安全策
 

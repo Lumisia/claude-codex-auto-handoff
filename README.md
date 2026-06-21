@@ -181,7 +181,7 @@ Alongside the capsule, the plugin can carry project guidelines, formats, and got
 
 ### 6. Skills and commands
 
-Three skills package the behavior: `handoff-ratelimit` (the 5-hour trigger), `handoff-session` (the `/handoff` command family), and `handoff-doctor` (diagnostics). They drive the `/handoff` commands listed below.
+Three skills package the behavior: `handoff-ratelimit` (the 5-hour trigger), `handoff` (the `/handoff` command family), and `handoff-doctor` (diagnostics). They drive the `/handoff` commands listed below.
 
 ### 7. Built-in safety
 

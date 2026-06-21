@@ -16,8 +16,16 @@ function git(cwd, args) {
 // (https://host/repo.git?access_token=TOKEN#frag). scp-style SSH
 // ("git@host:path") has no "://" and is left untouched — git@ is a conventional
 // username, not a secret, and it has no query/fragment grammar.
+//
+// The userinfo class is [^/?#] (everything up to the authority terminator), not
+// [^/@]: git/curl treat the LAST "@" before the path as the userinfo<->host
+// delimiter, so a password may itself contain "@" (e.g. user:p@ss). Matching
+// only up to the first "@" would leak the password tail. The class must also
+// exclude "?" and "#" — the authority ends at the first "/", "?" or "#", so a
+// "@" inside a query/fragment (e.g. host?token=ab@cd, no path) is not userinfo;
+// matching across it would eat the real host and leak the query/fragment tail.
 function sanitizeRemoteUrl(url) {
-  let out = url.replace(/^([a-zA-Z][a-zA-Z0-9+.-]*:\/\/)[^/@]*@/, '$1');
+  let out = url.replace(/^([a-zA-Z][a-zA-Z0-9+.-]*:\/\/)[^/?#]*@/, '$1');
   if (/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(out)) {
     out = out.replace(/[?#].*$/, '');
   }

@@ -7,6 +7,8 @@ import { projectFingerprint } from '../core/lib/fingerprint.mjs';
 import { saveApproval, findApproval } from '../core/capsule/approval.mjs';
 import { createFromApproval, skipApproval, statusFor } from '../core/hooks/handoff.mjs';
 import { findPendingCapsule } from '../core/capsule/store.mjs';
+import { handoffDir } from '../core/lib/paths.mjs';
+import { acquireLock, releaseLock } from '../core/lib/fsx.mjs';
 
 function withRoot(fn) {
   const previous = process.env.AI_HANDOFF_ROOT;
@@ -50,4 +52,21 @@ test('status reports awaiting-user independently from pending capsule', () => wi
   const cwd = mkdtempSync(join(tmpdir(), 'ah-project-'));
   seed(cwd);
   assert.equal(statusFor(cwd).awaitingUser, true);
+}));
+
+test('create restores approval to AWAITING_USER when publish fails (retryable)', () => withRoot(() => {
+  const cwd = mkdtempSync(join(tmpdir(), 'ah-project-'));
+  const fp = seed(cwd);
+  // Hold the publish lock so publishCapsule throws after the approval has been
+  // moved to GENERATING — exercising the failure-recovery path.
+  const blocker = acquireLock(join(handoffDir(fp), '.publish.lock'), {});
+  assert.ok(blocker, 'publish lock acquired by test');
+  assert.throws(() => createFromApproval({ cwd, sentinel: { goal: 'g', next_actions: ['x'] }, now: 20 }));
+  releaseLock(blocker);
+  // The approval is back to AWAITING_USER, so the user can retry; nothing was
+  // published.
+  const restored = findApproval(fp);
+  assert.ok(restored, 'approval restored for retry');
+  assert.equal(restored.status, 'AWAITING_USER');
+  assert.equal(findPendingCapsule(fp), null);
 }));

@@ -4,7 +4,7 @@ import { readdirSync, readFileSync, existsSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import { findPendingCapsule, verifyStoredCapsule } from '../capsule/store.mjs';
 import { publishCapsule } from '../capsule/store.mjs';
-import { findApproval, resolveApproval } from '../capsule/approval.mjs';
+import { findApproval, resolveApproval, restoreApprovalForRetry } from '../capsule/approval.mjs';
 import { buildCheckpointCapsule } from '../capsule/checkpoint.mjs';
 import { dataRoot } from '../lib/paths.mjs';
 import { stateReport } from '../lib/state-report.mjs';
@@ -28,29 +28,39 @@ export function createFromApproval({ cwd, sentinel = {}, now = Date.now() }) {
   const approval = findApproval(fp);
   if (!approval) return { created: false, reason: 'no-awaiting-approval' };
   const resolved = resolveApproval(fp, { key: approval.key, decision: 'create', now });
-  const context = resolved.context;
-  const semantic = typeof sentinel.goal === 'string' && sentinel.goal.trim();
-  const payload = semantic ? sentinel : {
-    goal: `approved checkpoint at ${context.reading?.usedPercent ?? 'unknown'}%`,
-    next_actions: [], status: 'in_progress',
-  };
-  const { capsule } = buildCheckpointCapsule({
-    sentinel: payload,
-    cwd: context.cwd || cwd,
-    agent: context.agent,
-    sessionId: context.sessionId,
-    checkpointKey: approval.key,
-    now,
-    trigger: {
-      type: 'rate_limit',
-      threshold_percent: context.threshold,
-      observed_percent: context.reading?.usedPercent,
-      measurement_source: context.reading?.source,
-    },
-  });
-  publishCapsule(fp, capsule, { status: semantic ? 'AVAILABLE' : 'DEGRADED_AVAILABLE', now });
-  appendHistory(fp, { event: 'created_from_approval', taskId: capsule.task_id, agent: context.agent }, { now });
-  return { created: true, taskId: capsule.task_id, fingerprint: fp, degraded: !semantic };
+  // Approval is now GENERATING. If anything below throws, restore it to
+  // AWAITING_USER so the user can retry instead of losing the approval with no
+  // capsule to show for it.
+  try {
+    const context = resolved.context;
+    const semantic = typeof sentinel.goal === 'string' && sentinel.goal.trim();
+    const payload = semantic ? sentinel : {
+      goal: `approved checkpoint at ${context.reading?.usedPercent ?? 'unknown'}%`,
+      next_actions: [], status: 'in_progress',
+    };
+    const { capsule } = buildCheckpointCapsule({
+      sentinel: payload,
+      cwd: context.cwd || cwd,
+      agent: context.agent,
+      sessionId: context.sessionId,
+      checkpointKey: approval.key,
+      now,
+      trigger: {
+        type: 'rate_limit',
+        threshold_percent: context.threshold,
+        observed_percent: context.reading?.usedPercent,
+        measurement_source: context.reading?.source,
+      },
+    });
+    publishCapsule(fp, capsule, { status: semantic ? 'AVAILABLE' : 'DEGRADED_AVAILABLE', now });
+    appendHistory(fp, { event: 'created_from_approval', taskId: capsule.task_id, agent: context.agent }, { now });
+    return { created: true, taskId: capsule.task_id, fingerprint: fp, degraded: !semantic };
+  } catch (err) {
+    // Best-effort recovery: a failure restoring the approval must never replace
+    // (mask) the original error the caller needs to see. Always rethrow `err`.
+    try { restoreApprovalForRetry(fp, { key: approval.key, now }); } catch {}
+    throw err;
+  }
 }
 
 export function skipApproval({ cwd, now = Date.now() }) {

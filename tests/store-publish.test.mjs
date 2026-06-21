@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { publishCapsule, findPendingCapsule, readState, writeState } from '../core/capsule/store.mjs';
@@ -52,6 +52,23 @@ test('publishCapsule never overwrites an existing task capsule', () => withRoot(
     project: { fingerprint: 'fp' }, checkpoint: { status: 'in_progress' }, task: { goal: 'different' },
   });
   assert.throws(() => publishCapsule('fp', different, { now: 2 }), /already published/);
+}));
+
+test('an orphaned partial publish (capsule.json without state.json) is completed by retry', () => withRoot(() => {
+  const { statePath } = publishCapsule('fp', capsule, { now: 1 });
+  // Simulate a crash between the capsule.json write and finalize: drop state.json
+  // but leave capsule.json behind.
+  rmSync(statePath);
+  // A retry builds a fresh capsule_id (different bytes). It must COMPLETE the
+  // publish, not wedge forever on "already published".
+  const retry = buildCapsule({
+    capsuleId: 'c2', taskId: capsule.task_id, now: '2026-06-19T00:00:02Z',
+    source: { agent: 'codex' }, target: { agent: 'claude-code' }, trigger: { type: 'test' },
+    project: { fingerprint: 'fp' }, checkpoint: { status: 'in_progress' }, task: { goal: 'g' },
+  });
+  const res = publishCapsule('fp', retry, { now: 2 });
+  assert.equal(readState(res.statePath).status, 'AVAILABLE');
+  assert.equal(findPendingCapsule('fp').capsule.capsule_id, 'c2');
 }));
 
 test('publishing a newer project capsule expires the previous pending capsule', () => withRoot(() => {

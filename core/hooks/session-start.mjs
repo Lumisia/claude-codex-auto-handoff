@@ -78,10 +78,18 @@ export function prepareSessionStart({ input, agent, now = Date.now() }) {
 // This deliberately does NOT consume: a SessionStart that never reaches a prompt
 // leaves the capsule pending for the next session.
 export function finalizeSessionStart(delivery, { now = Date.now() } = {}) {
-  recordInject({ fingerprint: delivery.fingerprint, sessionId: delivery.sessionId, taskId: delivery.taskId, now });
+  const recorded = recordInject({
+    fingerprint: delivery.fingerprint, sessionId: delivery.sessionId, taskId: delivery.taskId, now,
+  });
+  // Only record an 'injected' history event if the consume marker was actually
+  // persisted. Otherwise (missing session id or lock contention) the session's
+  // first prompt could never consume the capsule, so claiming it was injected
+  // would be a lie that hides the un-consumed handoff.
+  if (!recorded) return false;
   appendHistory(delivery.fingerprint, {
     event: 'injected', taskId: delivery.taskId, agent: delivery.agent, session_id: delivery.sessionId,
   }, { now });
+  return true;
 }
 
 // Output delivery failed after prepare. Inject is read-only until finalize, so

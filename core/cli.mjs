@@ -180,10 +180,16 @@ async function handoffPreview(args) {
 async function handoffResume(args) {
   const agent = argValue(args, '--agent', 'codex');
   const input = await readInput(args);
+  // An explicit /handoff resume injects and consumes within THIS single process,
+  // so there is no cross-session window. If the caller supplied no session id,
+  // synthesize a unique one for this invocation rather than sharing the global
+  // 'unknown' inject key (which a different id-less session could otherwise
+  // piggyback on, consuming a capsule it never saw).
+  if (!input.session_id) input.session_id = `resume-${randomUUID()}`;
   const result = await deliverSession(input, agent);
   if (!result.injected) { process.stderr.write(`[handoff] resume: ${result.reason}\n`); return; }
-  // An explicit /handoff resume is a deliberate user action — proof of life — so
-  // consume now rather than waiting for the next prompt.
+  // A deliberate user action is proof of life — consume now rather than waiting
+  // for the next prompt.
   const consumed = consumeOnPrompt({ input, agent });
   process.stderr.write(`[handoff] resume: injected, consumed=${consumed.consumed}\n`);
 }

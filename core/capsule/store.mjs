@@ -1,5 +1,5 @@
 import { join, basename, dirname } from 'node:path';
-import { existsSync, readFileSync, readdirSync, statSync, unlinkSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { handoffDir } from '../lib/paths.mjs';
 import { writeFileAtomic, acquireLock, releaseLock, ownsLock } from '../lib/fsx.mjs';
 import { sha256Hex } from '../lib/hash.mjs';
@@ -38,15 +38,19 @@ export function publishCapsule(fingerprint, capsule, { status = 'AVAILABLE', now
   const publishLock = acquireLock(join(handoffDir(fingerprint), '.publish.lock'), { now });
   if (!publishLock) throw new Error(`capsule publish is locked: ${capsule.task_id}`);
   try {
-    if (existsSync(capsulePath)) {
-      const existing = readFileSync(capsulePath, 'utf8');
-      if (existing !== text) throw new Error(`capsule already published: ${capsule.task_id}`);
-      if (!existsSync(statePath)) {
-        refreshProjectIndex(fingerprint, capsule.task_id, { now });
-        writeState(statePath, { status, task_id: capsule.task_id, updated_at: now });
+    if (existsSync(capsulePath) && existsSync(statePath)) {
+      // A FINALIZED capsule (both files present) is immutable: idempotent for
+      // identical bytes, rejected otherwise.
+      if (readFileSync(capsulePath, 'utf8') !== text) {
+        throw new Error(`capsule already published: ${capsule.task_id}`);
       }
       return { dir, capsulePath, statePath };
     }
+    // No state.json → either a brand-new publish or an ORPHANED partial one
+    // (capsule.json written but the publish crashed before finalizing). Each
+    // retry builds a fresh capsule_id so the bytes never match a byte-equality
+    // check — (re)write all artifacts to complete the publish instead of wedging
+    // every future retry on "already published".
     writeFileAtomic(capsulePath, text);
     writeFileAtomic(shaPath, sha256Hex(text) + '\n');
     refreshProjectIndex(fingerprint, capsule.task_id, { now });
@@ -79,29 +83,70 @@ function expireOtherPending(fingerprint, keepTaskId, { now = Date.now() } = {}) 
   }
 }
 
+// Recover a CLAIMED capsule whose lease has expired, restoring its prior
+// pending quality. The recovery runs UNDER the claim lock: acquiring it proves
+// no live claimant holds the lease (acquireLock refuses a non-expired lock and
+// atomically reclaims an expired one). Rewriting the state + deleting the
+// lockfile WITHOUT the lock is a TOCTOU — a fresh claimant could acquire the
+// lock between our read and unlink and have its live lock destroyed.
+function recoverExpiredClaim(hd, name, statePath, now) {
+  const lock = acquireLock(join(hd, name, '.claim.lock'), { now });
+  if (!lock) return; // a live claimant holds it — leave it CLAIMED
+  try {
+    const fresh = readState(statePath);
+    if (fresh.status !== 'CLAIMED' || typeof fresh.claim_expires_at !== 'number' || fresh.claim_expires_at > now) {
+      return; // consumed or already recovered before we got the lock
+    }
+    const target = fresh.previous_status === 'DEGRADED_AVAILABLE' ? 'DEGRADED_AVAILABLE' : 'AVAILABLE';
+    const recovered = { ...fresh, status: transition('CLAIMED', target), recovered_at: now };
+    delete recovered.claim_expires_at;
+    delete recovered.previous_status;
+    writeState(statePath, recovered);
+  } finally {
+    releaseLock(lock);
+  }
+}
+
 export function findPendingCapsule(fingerprint, { now = Date.now() } = {}) {
   const hd = handoffDir(fingerprint);
   if (!existsSync(hd)) return null;
-  let best = null;
-  let bestOrder = -Infinity;
+
+  // Phase 1: lazily recover lease-expired CLAIMED capsules, each under its own
+  // claim lock (see recoverExpiredClaim).
   for (const name of readdirSync(hd)) {
     const statePath = join(hd, name, 'state.json');
     if (!existsSync(statePath)) continue;
-    let state = readState(statePath);
+    const state = readState(statePath);
     if (state.status === 'CLAIMED' && typeof state.claim_expires_at === 'number' && state.claim_expires_at <= now) {
-      const target = state.previous_status === 'DEGRADED_AVAILABLE' ? 'DEGRADED_AVAILABLE' : 'AVAILABLE';
-      state = { ...state, status: transition('CLAIMED', target), recovered_at: now };
-      delete state.claim_expires_at;
-      delete state.previous_status;
-      writeState(statePath, state);
-      try { unlinkSync(join(hd, name, '.claim.lock')); } catch {}
+      recoverExpiredClaim(hd, name, statePath, now);
     }
-    if (!PENDING.has(state.status)) continue;
-    const order = typeof state.updated_at === 'number' ? state.updated_at : statSync(statePath).mtimeMs;
-    if (order > bestOrder) { bestOrder = order; best = { taskId: name, statePath, state }; }
+  }
+
+  // Phase 2: select the newest pending capsule AND expire its superseded
+  // siblings UNDER the publish lock. publishCapsule expires siblings under the
+  // same lock, so selecting + expiring here can never race a concurrent publish
+  // (which would otherwise let this read scan expire a freshly published capsule
+  // and silently drop the handoff). If the lock is held — a publish is in
+  // flight — we still select read-only but skip expiration: selection prefers
+  // the newest by `order`, so leaving extra pendings is harmless and loses
+  // nothing.
+  const publishLock = acquireLock(join(handoffDir(fingerprint), '.publish.lock'), { now });
+  let best = null;
+  try {
+    let bestOrder = -Infinity;
+    for (const name of readdirSync(hd)) {
+      const statePath = join(hd, name, 'state.json');
+      if (!existsSync(statePath)) continue;
+      const state = readState(statePath);
+      if (!PENDING.has(state.status)) continue;
+      const order = typeof state.updated_at === 'number' ? state.updated_at : statSync(statePath).mtimeMs;
+      if (order > bestOrder) { bestOrder = order; best = { taskId: name, statePath, state }; }
+    }
+    if (best && publishLock) expireOtherPending(fingerprint, best.taskId, { now });
+  } finally {
+    if (publishLock) releaseLock(publishLock);
   }
   if (!best) return null;
-  expireOtherPending(fingerprint, best.taskId, { now });
   let capsule = null;
   try { capsule = JSON.parse(readFileSync(join(hd, best.taskId, 'capsule.json'), 'utf8')); } catch {}
   return { ...best, capsule };

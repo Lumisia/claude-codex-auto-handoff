@@ -1,5 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { realpathSync } from 'node:fs';
+import { resolve, isAbsolute } from 'node:path';
 import { sha256Hex } from './hash.mjs';
 
 function git(cwd, args) {
@@ -32,10 +33,37 @@ function sanitizeRemoteUrl(url) {
   return out;
 }
 
+function isSchemeUrl(u) { return /^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(u); }
+function isWindowsDrive(u) { return /^[A-Za-z]:[\\/]/.test(u); }
+// git scp syntax: [user@]host:path — a colon before any slash, and not a scheme
+// URL or a Windows drive path. The user part is OPTIONAL ("host:path" with an
+// ssh-config host alias is valid), so we must not require an "@".
+function isScpLike(u) {
+  if (isSchemeUrl(u) || isWindowsDrive(u)) return false;
+  return /^[^/:]+:/.test(u);
+}
+
 export function projectFingerprintInfo(cwd) {
   let basis = null;
   const url = git(cwd, ['config', '--get', 'remote.origin.url']);
-  if (url) basis = { type: 'remote', value: 'remote:' + sanitizeRemoteUrl(url) };
+  if (url) {
+    const cleaned = sanitizeRemoteUrl(url);
+    let value = cleaned;
+    // A RELATIVE local remote (e.g. "../upstream.git") hashes identically across
+    // unrelated repos that happen to share the spelling, so they would share one
+    // capsule store. Anchor it to an absolute path against the repo root so two
+    // different checkouts get distinct fingerprints. Scheme URLs, scp-style SSH
+    // remotes, and already-absolute paths are global identifiers and left as-is.
+    if (!isSchemeUrl(cleaned) && !isScpLike(cleaned) && !isAbsolute(cleaned) && !isWindowsDrive(cleaned)) {
+      // Resolve LEXICALLY against the repo root — never realpathSync. The remote
+      // target may not exist locally (it is a git URL, not a checkout), and
+      // resolving symlinks would make the fingerprint depend on filesystem state
+      // (target presence / mount), orphaning capsules when that changes.
+      const root = git(cwd, ['rev-parse', '--show-toplevel']) || cwd;
+      value = resolve(root, cleaned);
+    }
+    basis = { type: 'remote', value: 'remote:' + value };
+  }
   if (!basis) {
     const root = git(cwd, ['rev-parse', '--show-toplevel']);
     if (root) {

@@ -53,7 +53,14 @@ export function acquireLock(lockPath, { leaseMs = 30000, now = Date.now() } = {}
         try { ageMs = now - statSync(lockPath).mtimeMs; } catch {}
         if (ageMs < leaseMs) return null;
       }
-      try { unlinkSync(lockPath); } catch { return null; }
+      // Reclaim the stale lock by renaming its inode aside, not by unlinking it.
+      // renameSync atomically moves the inode currently at lockPath, so when two
+      // racers reclaim the same stale lock only ONE rename succeeds — the loser
+      // gets ENOENT and backs off, instead of both unlinking and both recreating
+      // (double ownership). We then drop the moved-aside file and retry create.
+      const reclaimPath = `${lockPath}.reclaim-${token}`;
+      try { renameSync(lockPath, reclaimPath); } catch { return null; }
+      try { unlinkSync(reclaimPath); } catch {}
     }
   }
   return null;

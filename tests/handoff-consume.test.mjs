@@ -92,6 +92,21 @@ test('a non-target agent skips the capsule without rejecting it', () => withRoot
   assert.equal(r2.injected, true);
 }));
 
+test('a session without an id is shown the capsule but never tracks or consumes it', () => withRoot(() => {
+  const cwd = mkdtempSync(join(tmpdir(), 'ah-proj-'));
+  const fp = projectFingerprint(cwd);
+  const published = publishCapsule(fp, cap(fp), { now: 1 });
+  // Read-only inject still surfaces the handoff…
+  const r = prepareSessionStart({ input: { cwd }, agent: 'claude-code', now: 10 });
+  assert.equal(r.injected, true);
+  // …but with no session id the consume marker is not persisted.
+  assert.equal(finalizeSessionStart(r.delivery, { now: 10 }), false);
+  const res = consumeOnPrompt({ input: { cwd }, agent: 'claude-code', now: 30 });
+  assert.equal(res.consumed, false);
+  assert.equal(res.reason, 'no-session');
+  assert.equal(readState(published.statePath).status, 'AVAILABLE', 'capsule must survive for an identifiable session');
+}));
+
 test('UserPromptSubmit for a session that was never injected does not consume', () => withRoot(() => {
   const cwd = mkdtempSync(join(tmpdir(), 'ah-proj-'));
   const fp = projectFingerprint(cwd);

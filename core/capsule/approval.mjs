@@ -1,7 +1,7 @@
 import { join } from 'node:path';
 import { readFileSync } from 'node:fs';
 import { handoffDir } from '../lib/paths.mjs';
-import { writeFileAtomic, acquireLock, releaseLock } from '../lib/fsx.mjs';
+import { writeFileAtomic, acquireLock, releaseLock, withLock } from '../lib/fsx.mjs';
 
 function approvalPath(fingerprint) { return join(handoffDir(fingerprint), 'approval-state.json'); }
 
@@ -37,6 +37,29 @@ export function findApproval(fingerprint, { key } = {}) {
     .filter((entry) => entry.status === 'AWAITING_USER' && (!key || entry.key === key))
     .sort((a, b) => b.updated_at - a.updated_at);
   return entries[0] || null;
+}
+
+// Move a GENERATING approval back to AWAITING_USER so a failed capsule build or
+// publish does not permanently consume the approval. findApproval only returns
+// AWAITING_USER entries, so without this a publish failure silently strands the
+// user with neither a capsule nor a retryable approval.
+//
+// This is itself an error-path recovery, so it must not throw on lock
+// contention (that would mask the original failure AND leave the approval
+// stranded in GENERATING). Unlike `mutate` it retries the lock with backoff and
+// returns the restored entry, or null if it could not restore.
+export function restoreApprovalForRetry(fingerprint, { key, now = Date.now() }) {
+  const path = approvalPath(fingerprint);
+  let restored = null;
+  withLock(`${path}.lock`, () => {
+    const state = readApprovals(fingerprint);
+    const current = state.approvals?.[key];
+    if (!current || current.status !== 'GENERATING') return;
+    restored = { ...current, status: 'AWAITING_USER', updated_at: now };
+    state.approvals[key] = restored;
+    writeFileAtomic(path, JSON.stringify(state, null, 2) + '\n');
+  });
+  return restored;
 }
 
 export function resolveApproval(fingerprint, { key, decision, now = Date.now() }) {

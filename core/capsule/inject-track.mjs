@@ -38,7 +38,13 @@ function writeInjectState(mutate, { now = Date.now() } = {}) {
 // capsule status is untouched here: an ephemeral session that never prompts
 // simply leaves the capsule pending for the next session.
 export function recordInject({ fingerprint, sessionId, taskId, now = Date.now() }) {
-  writeInjectState((injected) => { injected[key(fingerprint, sessionId)] = { taskId, at: now }; }, { now });
+  // Without a session id we cannot bind the injection to THIS session: a later
+  // session that also lacks an id would collide on the 'unknown' key and consume
+  // a capsule it never received. Refuse to record — the capsule stays pending and
+  // is re-injected to the next identifiable session. Returns true only if the
+  // marker was actually persisted (false on missing id or lock contention).
+  if (!sessionId) return false;
+  return writeInjectState((injected) => { injected[key(fingerprint, sessionId)] = { taskId, at: now }; }, { now });
 }
 
 // Consume the capsule this session was injected, on the session's first prompt.
@@ -49,6 +55,10 @@ export function consumeOnPrompt({ input = {}, agent, now = Date.now() }) {
   const cwd = input.cwd || process.cwd();
   const fingerprint = projectFingerprint(cwd);
   const sessionId = input.session_id;
+  // A session with no id was never recordable (see recordInject), so it can have
+  // no marker of its own — refuse rather than fall back to the shared 'unknown'
+  // key and risk consuming another session's capsule.
+  if (!sessionId) return { consumed: false, reason: 'no-session' };
   const k = key(fingerprint, sessionId);
   const entry = readInjectState().injected?.[k];
   if (!entry) return { consumed: false, reason: 'not-injected' };

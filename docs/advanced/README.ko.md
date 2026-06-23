@@ -46,7 +46,7 @@ Claude Code monitor는 Claude Code v2.1.105 이상, interactive CLI 세션, user
 
 - 두 도구에 모두 플러그인이 설치되어 있어야 합니다.
 - 플러그인 내부 이름은 `ai-handoff`입니다.
-- Claude Code는 사용량을 status line에서 읽기 때문에 추가 설정 명령을 한 번 실행해야 합니다.
+- Claude Code는 사용량을 status line에서 읽으며, 플러그인 설치나 reload 후 첫 Claude Code 세션에서 statusline runner를 자동 설치합니다.
 - Codex는 별도 status line 설정이 필요 없습니다.
 - Windows의 Store/MSIX Claude 앱은 `%LOCALAPPDATA%`가 분리될 수 있습니다. 이 경우 `AI_HANDOFF_ROOT`를 같은 경로로 지정해야 합니다.
 

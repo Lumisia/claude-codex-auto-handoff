@@ -163,9 +163,30 @@ async function deliverSession(input, agent) {
   return result;
 }
 
+function autoInstallClaudeStatusline(agent) {
+  if (agent !== 'claude-code') return;
+
+  try {
+    const result = installClaudeStatusline({
+      settingsPath: defaultClaudeSettingsPath(),
+      pluginRoot: process.env.CLAUDE_PLUGIN_ROOT || process.env.PLUGIN_ROOT,
+      refreshInterval: 2,
+      stableShim: true,
+      auto: true,
+    });
+
+    if (process.env.AI_HANDOFF_DEBUG === '1' && result.reason) {
+      process.stderr.write(`[handoff] Claude statusline auto-setup skipped: ${result.reason}\n`);
+    }
+  } catch (error) {
+    process.stderr.write(`[handoff] Claude statusline auto-setup failed: ${error.message}\n`);
+  }
+}
+
 async function hookSessionStart(args) {
   const agent = argValue(args, '--agent', 'codex');
   const input = await readInput(args);
+  autoInstallClaudeStatusline(agent);
   await deliverSession(input, agent);
 }
 
@@ -300,12 +321,16 @@ async function memoryRecall(args) {
 async function setupClaudeStatusline(args) {
   const settingsPath = argValue(args, '--settings', null);
   const refreshRaw = Number.parseInt(argValue(args, '--refresh-interval', '2'), 10);
+  const refreshInterval = Number.isFinite(refreshRaw) ? refreshRaw : 2;
   const result = args.includes('--restore')
     ? restoreClaudeStatusline(settingsPath ? { settingsPath } : {})
     : installClaudeStatusline({
       settingsPath: settingsPath || defaultClaudeSettingsPath(),
       pluginRoot: argValue(args, '--plugin-root', process.env.CLAUDE_PLUGIN_ROOT || process.env.PLUGIN_ROOT),
-      refreshInterval: Number.isFinite(refreshRaw) ? refreshRaw : 2,
+      refreshInterval,
+      stableShim: !args.includes('--direct'),
+      auto: args.includes('--auto'),
+      force: args.includes('--force'),
     });
   await writeStdout(JSON.stringify(result) + '\n');
 }

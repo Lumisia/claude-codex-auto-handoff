@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -20,6 +20,34 @@ test('hook:session-start with no pending prints empty context', () => {
   const cwd = mkdtempSync(join(tmpdir(), 'ah-proj-'));
   const out = run(['hook:session-start'], JSON.stringify({ cwd }), { AI_HANDOFF_ROOT: root });
   assert.equal(out.trim(), '');
+});
+
+test('Claude SessionStart auto-installs the stable statusline runner without stdout noise', () => {
+  const root = mkdtempSync(join(tmpdir(), 'ah-cli-'));
+  const home = mkdtempSync(join(tmpdir(), 'ah-home-'));
+  const pluginRoot = join(root, 'plugin-cache', 'ai-handoff');
+  const cwd = mkdtempSync(join(tmpdir(), 'ah-proj-'));
+
+  const out = run(['hook:session-start', '--agent', 'claude-code'], JSON.stringify({ cwd }), {
+    AI_HANDOFF_ROOT: root,
+    CLAUDE_PLUGIN_ROOT: pluginRoot,
+    HOME: home,
+    USERPROFILE: home,
+    LOCALAPPDATA: home,
+  });
+
+  assert.equal(out.trim(), '');
+
+  const settingsPath = join(home, '.claude', 'settings.json');
+  const statePath = join(root, 'claude-statusline.json');
+  const settings = JSON.parse(readFileSync(settingsPath, 'utf8'));
+  const state = JSON.parse(readFileSync(statePath, 'utf8'));
+
+  assert.match(settings.statusLine.command, /claude-statusline-runner\.mjs/);
+  assert.doesNotMatch(settings.statusLine.command, /plugin-cache/);
+  assert.equal(settings.statusLine.refreshInterval, 2);
+  assert.equal(state.plugin_root, pluginRoot);
+  assert.ok(existsSync(state.runner_path));
 });
 
 test('hook:stop off mode is a no-op and exits 0', () => {

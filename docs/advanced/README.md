@@ -46,7 +46,7 @@ If a capsule appears in `recent` but not in `status`, it is probably stored unde
 
 - Install the plugin in both tools.
 - The plugin's internal name is `ai-handoff`.
-- Claude Code reads usage from the status line, so run the extra setup command once.
+- Claude Code reads usage from the status line; the plugin installs its statusline runner automatically on the first Claude Code session after install or reload.
 - Codex does not need extra status line setup.
 - On Windows, the Store/MSIX Claude app can split `%LOCALAPPDATA%`. In that case, set `AI_HANDOFF_ROOT` to the same shared path for both tools.
 

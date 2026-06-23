@@ -68,48 +68,30 @@ codex plugin marketplace add Lumisia/claude-codex-auto-handoff
 codex plugin add ai-handoff@claude-codex-auto-handoff
 ```
 
-## Extra Claude Code setup
+## Claude Code statusline sensor
 
-Claude Code usage is read from the status line, so run this once.
+Claude Code usage is read from the Claude Code status line input.
 
-You need a local folder that contains `core/cli.mjs`. The easiest way is to clone this repository:
+You do not need to run a separate setup command. The plugin installs a stable
+local statusline runner automatically on the first Claude Code session after
+the plugin is installed or reloaded.
 
-```bash
-git clone https://github.com/Lumisia/claude-codex-auto-handoff.git
-```
-
-Then move into the plugin folder and run the setup command.
-
-Windows PowerShell:
-
-```powershell
-cd "C:\path\to\claude-codex-auto-handoff"
-$PLUGIN_ROOT = (Get-Location).Path
-node "$PLUGIN_ROOT\core\cli.mjs" setup:claude-statusline --plugin-root "$PLUGIN_ROOT"
-```
-
-macOS/Linux:
+If automatic setup fails, run:
 
 ```bash
-cd "/path/to/claude-codex-auto-handoff"
-PLUGIN_ROOT="$(pwd)"
 node "$PLUGIN_ROOT/core/cli.mjs" setup:claude-statusline --plugin-root "$PLUGIN_ROOT"
 ```
 
-To restore, run this from the same plugin folder.
-
-Windows PowerShell:
-
-```powershell
-$PLUGIN_ROOT = (Get-Location).Path
-node "$PLUGIN_ROOT\core\cli.mjs" setup:claude-statusline --restore
-```
-
-macOS/Linux:
+To restore your previous status line:
 
 ```bash
-PLUGIN_ROOT="$(pwd)"
 node "$PLUGIN_ROOT/core/cli.mjs" setup:claude-statusline --restore
+```
+
+To opt out of automatic setup, set this in the Claude Code environment:
+
+```bash
+AI_HANDOFF_NO_AUTO_STATUSLINE=1
 ```
 
 Codex needs no extra sensor setup.

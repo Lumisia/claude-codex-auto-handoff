@@ -68,48 +68,30 @@ codex plugin marketplace add Lumisia/claude-codex-auto-handoff
 codex plugin add ai-handoff@claude-codex-auto-handoff
 ```
 
-## Claude Code の追加設定
+## Claude Code statusline センサー
 
-Claude Code の使用量は status line から読みます。そのため、次の設定を一度だけ実行します。
+Claude Code の使用量は Claude Code status line 入力から読みます。
 
-必要なのは `core/cli.mjs` が入っているローカルフォルダです。いちばん簡単な方法は、このリポジトリを clone することです。
+別の setup コマンドを実行する必要はありません。プラグインをインストールまたは
+`/reload-plugins` した後、最初の Claude Code セッションで安定したローカル
+statusline runner が自動的にインストールされます。
 
-```bash
-git clone https://github.com/Lumisia/claude-codex-auto-handoff.git
-```
-
-次に、プラグインフォルダへ移動して実行します。
-
-Windows PowerShell:
-
-```powershell
-cd "C:\path\to\claude-codex-auto-handoff"
-$PLUGIN_ROOT = (Get-Location).Path
-node "$PLUGIN_ROOT\core\cli.mjs" setup:claude-statusline --plugin-root "$PLUGIN_ROOT"
-```
-
-macOS/Linux:
+自動設定に失敗した場合だけ、次を実行してください。
 
 ```bash
-cd "/path/to/claude-codex-auto-handoff"
-PLUGIN_ROOT="$(pwd)"
 node "$PLUGIN_ROOT/core/cli.mjs" setup:claude-statusline --plugin-root "$PLUGIN_ROOT"
 ```
 
-戻すときも、同じプラグインフォルダで実行します。
-
-Windows PowerShell:
-
-```powershell
-$PLUGIN_ROOT = (Get-Location).Path
-node "$PLUGIN_ROOT\core\cli.mjs" setup:claude-statusline --restore
-```
-
-macOS/Linux:
+以前の status line に戻すには:
 
 ```bash
-PLUGIN_ROOT="$(pwd)"
 node "$PLUGIN_ROOT/core/cli.mjs" setup:claude-statusline --restore
+```
+
+自動設定を無効にするには、Claude Code の実行環境で次の環境変数を設定します。
+
+```bash
+AI_HANDOFF_NO_AUTO_STATUSLINE=1
 ```
 
 Codex には追加のセンサー設定は不要です。

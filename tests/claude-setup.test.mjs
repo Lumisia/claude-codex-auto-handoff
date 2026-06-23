@@ -1,11 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   installClaudeStatusline, restoreClaudeStatusline, readClaudeStatuslineState,
-  runPreviousStatusline, statuslineCommand,
+  runPreviousStatusline, statuslineCommand, isHandoffStatuslineCommand,
 } from '../core/setup/claude-statusline.mjs';
 
 function withRoot(fn) {
@@ -26,10 +26,31 @@ test('install preserves an existing statusLine and is idempotent', () => withRoo
   const second = installClaudeStatusline({ settingsPath, pluginRoot: 'C:/plugin' });
   const settings = JSON.parse(readFileSync(settingsPath, 'utf8'));
   assert.equal(settings.theme, 'dark');
-  assert.match(settings.statusLine.command, /sensor:claude-statusline/);
+  assert.match(settings.statusLine.command, /claude-statusline-runner\.mjs/);
+  assert.doesNotMatch(settings.statusLine.command, /core\/cli\.mjs/);
   assert.equal(settings.statusLine.refreshInterval, 2);
   assert.deepEqual(readClaudeStatuslineState().previous, previous);
   assert.equal(first.command, second.command);
+}));
+
+test('install writes a stable runner and records the current plugin root', () => withRoot((root) => {
+  const dir = mkdtempSync(join(tmpdir(), 'ah-claude-settings-'));
+  const settingsPath = join(dir, 'settings.json');
+  const pluginRoot = join(root, 'plugin-cache', 'ai-handoff');
+  const result = installClaudeStatusline({ settingsPath, pluginRoot });
+
+  assert.equal(result.installed, true);
+  assert.equal(result.stableShim, true);
+  assert.ok(result.runnerPath.endsWith('claude-statusline-runner.mjs'));
+  assert.ok(existsSync(result.runnerPath));
+  assert.ok(result.command.includes('claude-statusline-runner.mjs'));
+  assert.ok(!result.command.includes('sensor:claude-statusline'));
+
+  const state = readClaudeStatuslineState();
+  assert.equal(state.mode, 'stable-shim');
+  assert.equal(state.plugin_root, pluginRoot);
+  assert.equal(state.data_root, root);
+  assert.equal(state.installed_command, result.command);
 }));
 
 test('re-running install backfills a refreshInterval missing from an older install', () => withRoot(() => {
@@ -46,7 +67,7 @@ test('re-running install backfills a refreshInterval missing from an older insta
   installClaudeStatusline({ settingsPath, pluginRoot: 'C:/plugin' });
   const upgraded = JSON.parse(readFileSync(settingsPath, 'utf8'));
   assert.equal(upgraded.statusLine.refreshInterval, 2);
-  assert.match(upgraded.statusLine.command, /sensor:claude-statusline/);
+  assert.match(upgraded.statusLine.command, /claude-statusline-runner\.mjs/);
   // The reversible backup must still point at the user's original statusLine.
   assert.deepEqual(readClaudeStatuslineState().previous, previous);
 }));
@@ -81,6 +102,71 @@ test('re-running install applies a changed --refresh-interval without touching t
   assert.equal(JSON.parse(readFileSync(settingsPath, 'utf8')).statusLine.refreshInterval, 60);
   restoreClaudeStatusline({ settingsPath });
   assert.deepEqual(JSON.parse(readFileSync(settingsPath, 'utf8')).statusLine, { type: 'command', command: 'old-status' });
+}));
+
+test('direct install keeps the legacy cache-root command available by opt-in', () => withRoot(() => {
+  const dir = mkdtempSync(join(tmpdir(), 'ah-claude-settings-'));
+  const settingsPath = join(dir, 'settings.json');
+  const result = installClaudeStatusline({ settingsPath, pluginRoot: 'C:/plugin', stableShim: false });
+
+  assert.match(result.command, /sensor:claude-statusline/);
+  assert.ok(result.command.includes('core/cli.mjs'));
+  assert.equal(readClaudeStatuslineState().mode, 'direct');
+}));
+
+test('auto install does not overwrite a user-modified statusLine after install', () => withRoot(() => {
+  const dir = mkdtempSync(join(tmpdir(), 'ah-claude-settings-'));
+  const settingsPath = join(dir, 'settings.json');
+  installClaudeStatusline({ settingsPath, pluginRoot: 'C:/plugin-v1' });
+  writeFileSync(settingsPath, JSON.stringify({
+    statusLine: { type: 'command', command: 'user-status' },
+  }));
+
+  const result = installClaudeStatusline({
+    settingsPath,
+    pluginRoot: 'C:/plugin-v2',
+    auto: true,
+  });
+
+  assert.equal(result.installed, false);
+  assert.equal(result.reason, 'user-modified-statusline');
+  assert.equal(JSON.parse(readFileSync(settingsPath, 'utf8')).statusLine.command, 'user-status');
+}));
+
+test('restore disables future automatic reinstall', () => withRoot(() => {
+  const dir = mkdtempSync(join(tmpdir(), 'ah-claude-settings-'));
+  const settingsPath = join(dir, 'settings.json');
+  const previous = { type: 'command', command: 'old-status' };
+  writeFileSync(settingsPath, JSON.stringify({ statusLine: previous }));
+  installClaudeStatusline({ settingsPath, pluginRoot: 'C:/plugin-v1' });
+
+  assert.equal(restoreClaudeStatusline({ settingsPath }).restored, true);
+  assert.equal(readClaudeStatuslineState().disabled, true);
+
+  const result = installClaudeStatusline({
+    settingsPath,
+    pluginRoot: 'C:/plugin-v2',
+    auto: true,
+  });
+
+  assert.equal(result.installed, false);
+  assert.equal(result.reason, 'disabled-by-restore');
+  assert.deepEqual(JSON.parse(readFileSync(settingsPath, 'utf8')).statusLine, previous);
+}));
+
+test('does not chain an old handoff statusLine command as previous', () => withRoot(() => {
+  const dir = mkdtempSync(join(tmpdir(), 'ah-claude-settings-'));
+  const settingsPath = join(dir, 'settings.json');
+  const previous = {
+    type: 'command',
+    command: 'node "C:/old-plugin/core/cli.mjs" sensor:claude-statusline',
+  };
+  writeFileSync(settingsPath, JSON.stringify({ statusLine: previous }));
+
+  installClaudeStatusline({ settingsPath, pluginRoot: 'C:/plugin-v2' });
+
+  assert.equal(isHandoffStatuslineCommand(previous.command), true);
+  assert.equal(readClaudeStatuslineState().previous, null);
 }));
 
 test('restore reinstates the previous statusLine exactly', () => withRoot(() => {

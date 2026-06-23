@@ -31,6 +31,36 @@ test('install preserves an existing statusLine and is idempotent', () => withRoo
   assert.equal(first.command, second.command);
 }));
 
+test('re-running install backfills a refreshInterval missing from an older install', () => withRoot(() => {
+  const dir = mkdtempSync(join(tmpdir(), 'ah-claude-settings-'));
+  const settingsPath = join(dir, 'settings.json');
+  const previous = { type: 'command', command: 'old-status' };
+  writeFileSync(settingsPath, JSON.stringify({ statusLine: previous }));
+  // Simulate an install from a plugin version that predates refreshInterval:
+  // same command, but no refreshInterval written.
+  installClaudeStatusline({ settingsPath, pluginRoot: 'C:/plugin', refreshInterval: 0 });
+  assert.equal('refreshInterval' in JSON.parse(readFileSync(settingsPath, 'utf8')).statusLine, false);
+  // Upgrading and re-running setup must add the refreshInterval even though the
+  // command string is unchanged (the alreadyInstalled short-circuit used to skip it).
+  installClaudeStatusline({ settingsPath, pluginRoot: 'C:/plugin', refreshInterval: 30 });
+  const upgraded = JSON.parse(readFileSync(settingsPath, 'utf8'));
+  assert.equal(upgraded.statusLine.refreshInterval, 30);
+  assert.match(upgraded.statusLine.command, /sensor:claude-statusline/);
+  // The reversible backup must still point at the user's original statusLine.
+  assert.deepEqual(readClaudeStatuslineState().previous, previous);
+}));
+
+test('re-running install applies a changed --refresh-interval without touching the backup', () => withRoot(() => {
+  const dir = mkdtempSync(join(tmpdir(), 'ah-claude-settings-'));
+  const settingsPath = join(dir, 'settings.json');
+  writeFileSync(settingsPath, JSON.stringify({ statusLine: { type: 'command', command: 'old-status' } }));
+  installClaudeStatusline({ settingsPath, pluginRoot: 'C:/plugin', refreshInterval: 30 });
+  installClaudeStatusline({ settingsPath, pluginRoot: 'C:/plugin', refreshInterval: 60 });
+  assert.equal(JSON.parse(readFileSync(settingsPath, 'utf8')).statusLine.refreshInterval, 60);
+  restoreClaudeStatusline({ settingsPath });
+  assert.deepEqual(JSON.parse(readFileSync(settingsPath, 'utf8')).statusLine, { type: 'command', command: 'old-status' });
+}));
+
 test('restore reinstates the previous statusLine exactly', () => withRoot(() => {
   const dir = mkdtempSync(join(tmpdir(), 'ah-claude-settings-'));
   const settingsPath = join(dir, 'settings.json');

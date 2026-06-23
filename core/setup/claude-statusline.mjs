@@ -40,22 +40,29 @@ export function installClaudeStatusline({
   const settings = readSettings(settingsPath);
   const command = statuslineCommand(pluginRoot);
   const existingState = readClaudeStatuslineState();
-  const alreadyInstalled = settings.statusLine?.command === command;
-  if (!alreadyInstalled) {
+  // refreshInterval re-runs the status line command every N seconds, so the
+  // rate-limit sample the Stop hook reads back stays fresh between turns
+  // (https://code.claude.com/docs/en/statusline). Omit it when not positive.
+  const desired = refreshInterval > 0
+    ? { type: 'command', command, refreshInterval }
+    : { type: 'command', command };
+  const commandMatches = settings.statusLine?.command === command;
+  if (!commandMatches) {
     const relocating = existingState && settings.statusLine?.command === existingState.installed_command;
     const previous = relocating ? existingState.previous : (settings.statusLine ?? null);
     writeFileAtomic(claudeStatuslineStatePath(), JSON.stringify({
       version: 1, settings_path: settingsPath, previous, installed_command: command,
     }, null, 2) + '\n');
-    // refreshInterval re-runs the status line command every N seconds, so the
-    // rate-limit sample the Stop hook reads back stays fresh between turns
-    // (https://code.claude.com/docs/en/statusline). Omit it when not positive.
-    settings.statusLine = refreshInterval > 0
-      ? { type: 'command', command, refreshInterval }
-      : { type: 'command', command };
+    settings.statusLine = desired;
     writeFileAtomic(settingsPath, JSON.stringify(settings, null, 2) + '\n');
   } else if (!existingState) {
     throw new Error('statusLine is installed but its reversible backup is missing');
+  } else if (JSON.stringify(settings.statusLine) !== JSON.stringify(desired)) {
+    // Command already ours but the shape drifted (e.g. upgrading from a version
+    // that never wrote refreshInterval). Re-assert the desired statusLine while
+    // leaving the reversible backup untouched.
+    settings.statusLine = desired;
+    writeFileAtomic(settingsPath, JSON.stringify(settings, null, 2) + '\n');
   }
   return { installed: true, command, settingsPath, refreshInterval };
 }

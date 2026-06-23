@@ -113,6 +113,8 @@ Claude reads usage from its **status line**, and a plugin cannot claim that slot
 node "PATH/TO/claude-codex-auto-handoff/core/cli.mjs" setup:claude-statusline --plugin-root "PATH/TO/claude-codex-auto-handoff"
 ```
 
+> **Upgrading from an older version?** Re-run the command above once after updating. It re-asserts a `refreshInterval` on the status line so the usage sample the Stop hook reads stays fresh between turns (re-running is safe and idempotent).
+
 To undo it later:
 
 ```bash

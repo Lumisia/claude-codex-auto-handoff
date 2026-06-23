@@ -113,6 +113,8 @@ Claude는 사용량을 **상태줄(status line)** 에서 읽는데, 플러그인
 node "PATH/TO/claude-codex-auto-handoff/core/cli.mjs" setup:claude-statusline --plugin-root "PATH/TO/claude-codex-auto-handoff"
 ```
 
+> **이전 버전에서 업데이트했나요?** 업데이트 후 위 명령을 한 번 다시 실행하세요. 상태줄에 `refreshInterval`을 다시 적용해, Stop hook이 읽는 사용량 샘플이 턴 사이에도 신선하게 유지됩니다(재실행은 안전하며 idempotent합니다).
+
 나중에 되돌리려면:
 
 ```bash

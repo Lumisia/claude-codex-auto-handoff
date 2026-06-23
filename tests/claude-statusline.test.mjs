@@ -59,12 +59,21 @@ test('rejects a reading whose five-hour window has already reset', () => withRoo
   assert.equal(readClaudeRateLimit({ sessionId: 's1', now: 150_000 }), null);
 }));
 
-test('rejects stale samples and never crosses session ids', () => withRoot(() => {
+test('reads a sample across sessions (account-global) and drops it once stale', () => withRoot(() => {
   recordClaudeRateLimit({
     session_id: 's1',
     rate_limits: { five_hour: { used_percentage: 50, resets_at: 9 } },
   }, { now: 1_000 });
 
-  assert.equal(readClaudeRateLimit({ sessionId: 's2', now: 1_001, freshnessMs: 1_000 }), null);
+  // Claude hands the status line and the Stop hook different session ids, so a
+  // reader on session s2 must still see s1's account-global reading.
+  assert.equal(readClaudeRateLimit({ sessionId: 's2', now: 1_001, freshnessMs: 1_000 })?.usedPercent, 50);
+  // ...but only while it is fresh.
   assert.equal(readClaudeRateLimit({ sessionId: 's1', now: 2_001, freshnessMs: 1_000 }), null);
+}));
+
+test('picks the most recent valid sample when several sessions have written', () => withRoot(() => {
+  recordClaudeRateLimit({ session_id: 'old', rate_limits: { five_hour: { used_percentage: 20, resets_at: 9_999 } } }, { now: 1_000 });
+  recordClaudeRateLimit({ session_id: 'new', rate_limits: { five_hour: { used_percentage: 75, resets_at: 9_999 } } }, { now: 5_000 });
+  assert.equal(readClaudeRateLimit({ sessionId: 'unrelated', now: 6_000, freshnessMs: 100_000 })?.usedPercent, 75);
 }));

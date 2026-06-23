@@ -1,5 +1,5 @@
 import { join } from 'node:path';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { claudeRateLimitDir } from '../lib/paths.mjs';
 import { sha256Hex } from '../lib/hash.mjs';
 import { writeFileAtomic } from '../lib/fsx.mjs';
@@ -28,28 +28,40 @@ export function recordClaudeRateLimit(input, { now = Date.now() } = {}) {
   return true;
 }
 
-// A five-hour usage reading stays meaningful for far longer than a couple of
-// minutes, and Claude Code only re-renders the status line on events (the
-// refreshInterval timer does not always carry rate-limit data), so a tight
-// freshness window leaves the Stop hook reading nothing between renders. Use a
-// generous default and instead reject readings whose window has already reset
-// (a passed-window percentage would belong to the previous five-hour window).
+function sampleIsUsable(sample, freshnessMs, now) {
+  if (!sample || typeof sample.used_percent !== 'number') return false;
+  // A five-hour reading stays meaningful for far longer than a couple of minutes,
+  // and Claude only re-renders the status line on events, so a tight freshness
+  // window leaves the Stop hook reading nothing between renders.
+  if (typeof sample.captured_at !== 'number' || now - sample.captured_at > freshnessMs) return false;
+  // resets_at is unix SECONDS; now is ms. Past the reset boundary the percentage
+  // belongs to a previous window, so it must not drive a trigger.
+  if (typeof sample.resets_at === 'number' && now >= sample.resets_at * 1000) return false;
+  return true;
+}
+
+// The five-hour limit is account-global, but Claude Code hands the status line
+// and the Stop hook DIFFERENT session ids, so a sample keyed by the writer's
+// session is usually invisible to the reader's session — which left the Stop
+// hook reading nothing and never triggering. Pick the freshest still-valid
+// sample across all sessions instead of requiring an exact session match.
 export function readClaudeRateLimit({ sessionId, freshnessMs = 900_000, now = Date.now() } = {}) {
-  const path = samplePath(sessionId);
-  if (!path) return null;
-  let sample;
-  try { sample = JSON.parse(readFileSync(path, 'utf8')); } catch { return null; }
-  if (sample.session_id !== sessionId) return null;
-  if (typeof sample.captured_at !== 'number' || now - sample.captured_at > freshnessMs) return null;
-  if (typeof sample.used_percent !== 'number') return null;
-  // resets_at is unix SECONDS; now is ms. Past the reset boundary the sample
-  // describes a window that no longer applies.
-  if (typeof sample.resets_at === 'number' && now >= sample.resets_at * 1000) return null;
+  let best = null;
+  let files;
+  try { files = readdirSync(claudeRateLimitDir()); } catch { files = []; }
+  for (const file of files) {
+    if (!file.endsWith('.json')) continue;
+    let sample;
+    try { sample = JSON.parse(readFileSync(join(claudeRateLimitDir(), file), 'utf8')); } catch { continue; }
+    if (!sampleIsUsable(sample, freshnessMs, now)) continue;
+    if (!best || sample.captured_at > best.captured_at) best = sample;
+  }
+  if (!best) return null;
   return {
-    usedPercent: sample.used_percent,
+    usedPercent: best.used_percent,
     windowMinutes: 300,
-    resetsAt: sample.resets_at,
+    resetsAt: best.resets_at,
     source: 'claude-statusline',
-    capturedAt: sample.captured_at,
+    capturedAt: best.captured_at,
   };
 }

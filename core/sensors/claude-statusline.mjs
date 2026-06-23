@@ -28,7 +28,13 @@ export function recordClaudeRateLimit(input, { now = Date.now() } = {}) {
   return true;
 }
 
-export function readClaudeRateLimit({ sessionId, freshnessMs = 120_000, now = Date.now() } = {}) {
+// A five-hour usage reading stays meaningful for far longer than a couple of
+// minutes, and Claude Code only re-renders the status line on events (the
+// refreshInterval timer does not always carry rate-limit data), so a tight
+// freshness window leaves the Stop hook reading nothing between renders. Use a
+// generous default and instead reject readings whose window has already reset
+// (a passed-window percentage would belong to the previous five-hour window).
+export function readClaudeRateLimit({ sessionId, freshnessMs = 900_000, now = Date.now() } = {}) {
   const path = samplePath(sessionId);
   if (!path) return null;
   let sample;
@@ -36,6 +42,9 @@ export function readClaudeRateLimit({ sessionId, freshnessMs = 120_000, now = Da
   if (sample.session_id !== sessionId) return null;
   if (typeof sample.captured_at !== 'number' || now - sample.captured_at > freshnessMs) return null;
   if (typeof sample.used_percent !== 'number') return null;
+  // resets_at is unix SECONDS; now is ms. Past the reset boundary the sample
+  // describes a window that no longer applies.
+  if (typeof sample.resets_at === 'number' && now >= sample.resets_at * 1000) return null;
   return {
     usedPercent: sample.used_percent,
     windowMinutes: 300,

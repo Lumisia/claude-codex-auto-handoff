@@ -110,7 +110,7 @@ function sensorReader(agent, input, config) {
   if (agent === 'claude-code') {
     return async () => readClaudeRateLimit({
       sessionId: input.session_id,
-      freshnessMs: config.sensors?.claude?.freshness_ms ?? 120_000,
+      freshnessMs: config.sensors?.claude?.freshness_ms ?? 900_000,
     });
   }
   return codexSensorReader();

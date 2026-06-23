@@ -289,6 +289,7 @@ A user config that hands off automatically at 75% and turns notifications off �
 | `memory.auto_recall` | `true` / `false` | Recall verified memory on your first prompt. |
 | `memory.auto_recall_token_budget` | number, e.g. `800` | Max tokens of memory to recall. |
 | `statusline.show_handoff` | `true` / `false` (default `true`) | Show the `AH <pct>% · ⏳<n>` segment in the Claude Code status line. Note: this segment is **Claude Code only** — Codex CLI has a built-in rate-limit display but does not support external status-line segments. |
+| `sensors.claude.freshness_ms` | number (default `900000` = 15 min) | How recent the Claude status-line usage sample must be for the Stop hook to act on it. Claude only re-renders the status line on events, so a too-small value can leave the hook reading nothing between renders (it then stays silent rather than guessing). A reading whose five-hour window has already reset is rejected regardless. |
 
 > Turning `notification.method` to `off` only silences the OS pop-up — the handoff still happens, and in `ask` mode the agent still shows the prompt in chat.
 

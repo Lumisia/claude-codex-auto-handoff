@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   installClaudeStatusline, restoreClaudeStatusline, readClaudeStatuslineState,
-  runPreviousStatusline,
+  runPreviousStatusline, statuslineCommand,
 } from '../core/setup/claude-statusline.mjs';
 
 function withRoot(fn) {
@@ -48,6 +48,27 @@ test('re-running install backfills a refreshInterval missing from an older insta
   assert.match(upgraded.statusLine.command, /sensor:claude-statusline/);
   // The reversible backup must still point at the user's original statusLine.
   assert.deepEqual(readClaudeStatuslineState().previous, previous);
+}));
+
+test('re-running install self-heals a missing reversible backup instead of throwing', () => withRoot(() => {
+  const dir = mkdtempSync(join(tmpdir(), 'ah-claude-settings-'));
+  const settingsPath = join(dir, 'settings.json');
+  const command = statuslineCommand('C:/plugin');
+  // statusLine is already ours, but the reversible backup state file was never
+  // written (older build, or installed under a different data root).
+  writeFileSync(settingsPath, JSON.stringify({ statusLine: { type: 'command', command } }));
+  assert.equal(readClaudeStatuslineState(), null);
+  const result = installClaudeStatusline({ settingsPath, pluginRoot: 'C:/plugin', refreshInterval: 30 });
+  assert.equal(result.installed, true);
+  const settings = JSON.parse(readFileSync(settingsPath, 'utf8'));
+  assert.equal(settings.statusLine.refreshInterval, 30);
+  assert.equal(settings.statusLine.command, command);
+  // The backup is recreated; restore then simply removes our statusLine.
+  const state = readClaudeStatuslineState();
+  assert.equal(state.previous, null);
+  assert.equal(state.installed_command, command);
+  restoreClaudeStatusline({ settingsPath });
+  assert.equal('statusLine' in JSON.parse(readFileSync(settingsPath, 'utf8')), false);
 }));
 
 test('re-running install applies a changed --refresh-interval without touching the backup', () => withRoot(() => {

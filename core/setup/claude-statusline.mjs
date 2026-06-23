@@ -55,14 +55,20 @@ export function installClaudeStatusline({
     }, null, 2) + '\n');
     settings.statusLine = desired;
     writeFileAtomic(settingsPath, JSON.stringify(settings, null, 2) + '\n');
-  } else if (!existingState) {
-    throw new Error('statusLine is installed but its reversible backup is missing');
-  } else if (JSON.stringify(settings.statusLine) !== JSON.stringify(desired)) {
-    // Command already ours but the shape drifted (e.g. upgrading from a version
-    // that never wrote refreshInterval). Re-assert the desired statusLine while
-    // leaving the reversible backup untouched.
-    settings.statusLine = desired;
-    writeFileAtomic(settingsPath, JSON.stringify(settings, null, 2) + '\n');
+  } else {
+    // Command is already ours. Re-create the reversible backup if it went
+    // missing (older build, or a data root that changed) so re-running setup
+    // self-heals instead of dead-ending the user, then re-assert the desired
+    // statusLine (e.g. backfill a refreshInterval an older build never wrote).
+    if (!existingState) {
+      writeFileAtomic(claudeStatuslineStatePath(), JSON.stringify({
+        version: 1, settings_path: settingsPath, previous: null, installed_command: command,
+      }, null, 2) + '\n');
+    }
+    if (JSON.stringify(settings.statusLine) !== JSON.stringify(desired)) {
+      settings.statusLine = desired;
+      writeFileAtomic(settingsPath, JSON.stringify(settings, null, 2) + '\n');
+    }
   }
   return { installed: true, command, settingsPath, refreshInterval };
 }

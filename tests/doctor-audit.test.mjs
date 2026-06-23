@@ -82,3 +82,11 @@ test('history referencing a vanished task dir is reported as history-without-tas
   assert.ok(d.audit.some((a) => a.issue === 'history-without-task' && a.taskId === 't-x-ghostghostgh'));
   assert.equal(d.healthy, false);
 }));
+
+test('doctor exposes a warnings array, empty when AI_HANDOFF_ROOT unifies the store', () => withRoot(() => {
+  const cwd = mkdtempSync(join(tmpdir(), 'ah-proj-'));
+  publish(cwd);
+  const d = doctorFor(cwd); // withRoot sets AI_HANDOFF_ROOT → no split-risk warning
+  assert.ok(Array.isArray(d.warnings));
+  assert.deepEqual(d.warnings, []);
+}));

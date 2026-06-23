@@ -9,6 +9,7 @@ import { buildCheckpointCapsule } from '../capsule/checkpoint.mjs';
 import { dataRoot, handoffDir, globalStatePath } from '../lib/paths.mjs';
 import { markSeen } from '../lib/dedupe.mjs';
 import { stateReport } from '../lib/state-report.mjs';
+import { detectRootSplitRisk } from '../lib/rootcheck.mjs';
 
 // Mark the rate-limit window seen once the user has actually resolved the
 // ask (create or skip). The Stop hook deliberately does NOT mark seen at ask
@@ -251,6 +252,10 @@ export function doctorFor(cwd, { now = Date.now() } = {}) {
     issues.push(...verified.errors);
   }
   const audit = [...auditBucket(fingerprint), ...danglingHistory(fingerprint)];
+  // Environment advisories that do not imply store corruption (so they do not
+  // flip `healthy`), but warn the user about a misconfiguration that silently
+  // breaks cross-agent sharing — e.g. the Windows MSIX %LOCALAPPDATA% split.
+  const warnings = [detectRootSplitRisk()].filter(Boolean);
   return {
     fingerprint,
     basis,
@@ -259,6 +264,7 @@ export function doctorFor(cwd, { now = Date.now() } = {}) {
     healthy: issues.length === 0 && audit.length === 0,
     issues,
     audit,
+    warnings,
     pending: pending ? {
       taskId: pending.taskId,
       status: pending.state.status,

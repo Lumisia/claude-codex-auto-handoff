@@ -131,6 +131,18 @@ node "PATH/TO/claude-codex-auto-handoff/core/cli.mjs" setup:claude-statusline --
 
 Start a **new** agent session, and **review and trust** the lifecycle hooks when prompted. Do not use any "skip hook trust" flag for normal use — the whole point is that you decide to trust them.
 
+### Windows: keep Claude and Codex on one shared store
+
+The plugin keeps its store under `%LOCALAPPDATA%\ai-handoff`. The **Windows Store / MSIX build of the Claude desktop app** runs sandboxed and **transparently redirects `%LOCALAPPDATA%`** into its private package container — so the packaged Claude app and a normal Codex install end up writing to **two different physical folders** and never see each other's handoffs. (macOS and Linux are unaffected; so is the plain Claude Code CLI.)
+
+If you pair the packaged Claude app with Codex on Windows, point **both** at one shared root **outside** `AppData` and restart both:
+
+```bat
+setx AI_HANDOFF_ROOT "C:\Users\<you>\ai-handoff-store"
+```
+
+`AI_HANDOFF_ROOT` overrides the default location for every project. `/handoff doctor` warns you (`windows-store-split-risk`) when it detects this exact at-risk setup, and goes quiet once the shared root is in place.
+
 ---
 
 ## How it works (three automatic moments)

@@ -17,7 +17,7 @@ test('ask notification body is localized to ko', async () => {
   let captured = '';
   const readSensor = async () => ({ usedPercent: 90, windowMinutes: 300, resetsAt: null });
   await handleStop({ input: { cwd, session_id: 's' }, config, readSensor, agent: 'codex', now: 1, notifyFn: (t2, b) => { captured = b; } });
-  assert.match(captured, /캡슐을 생성할까요/);
+  assert.match(captured, /캡슐을 저장하겠습니까/);
   delete process.env.AI_HANDOFF_ROOT;
 });
 

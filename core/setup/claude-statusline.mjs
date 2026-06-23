@@ -34,7 +34,7 @@ export function statuslineCommand(pluginRoot) {
 }
 
 export function installClaudeStatusline({
-  settingsPath = defaultClaudeSettingsPath(), pluginRoot,
+  settingsPath = defaultClaudeSettingsPath(), pluginRoot, refreshInterval = 30,
 } = {}) {
   if (!pluginRoot) throw new Error('pluginRoot is required');
   const settings = readSettings(settingsPath);
@@ -47,12 +47,17 @@ export function installClaudeStatusline({
     writeFileAtomic(claudeStatuslineStatePath(), JSON.stringify({
       version: 1, settings_path: settingsPath, previous, installed_command: command,
     }, null, 2) + '\n');
-    settings.statusLine = { type: 'command', command };
+    // refreshInterval re-runs the status line command every N seconds, so the
+    // rate-limit sample the Stop hook reads back stays fresh between turns
+    // (https://code.claude.com/docs/en/statusline). Omit it when not positive.
+    settings.statusLine = refreshInterval > 0
+      ? { type: 'command', command, refreshInterval }
+      : { type: 'command', command };
     writeFileAtomic(settingsPath, JSON.stringify(settings, null, 2) + '\n');
   } else if (!existingState) {
     throw new Error('statusLine is installed but its reversible backup is missing');
   }
-  return { installed: true, command, settingsPath };
+  return { installed: true, command, settingsPath, refreshInterval };
 }
 
 export function restoreClaudeStatusline({ settingsPath } = {}) {

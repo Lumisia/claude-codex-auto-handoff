@@ -54,8 +54,11 @@ test('shared automatic hooks hand off Codex → Claude → Codex', () => {
       five_hour: { used_percentage: 91, resets_at: 9999999999 },
     },
   }, claudeEnv);
+  // Claude's Stop continuation is non-error feedback via additionalContext,
+  // whereas Codex (the `first` hop above) uses decision:block.
   const second = JSON.parse(run(dispatcher, ['stop'], { cwd, session_id: 'claude-s' }, claudeEnv));
-  assert.equal(second.decision, 'block');
+  assert.equal(second.decision, undefined);
+  assert.match(second.hookSpecificOutput.additionalContext, /handoff-capsule/);
   run(dispatcher, ['stop'], {
     cwd, session_id: 'claude-s', stop_hook_active: true,
     last_assistant_message: sentinel('Claude to Codex automatic'),

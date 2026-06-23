@@ -51,7 +51,10 @@ test('claude-code ask branch tells the model to use AskUserQuestion', () => {
     rate_limits: { five_hour: { used_percentage: 91, resets_at: 9999999999 } },
   }, env);
 
+  // Claude Stop continuation is non-error feedback via additionalContext, not a
+  // decision:block — see core/lib/hook-output.mjs.
   const out = JSON.parse(run(['hook:stop', '--agent', 'claude-code'], { cwd, session_id: 'claude-s' }, env));
-  assert.equal(out.decision, 'block');
-  assert.match(out.reason, /AskUserQuestion/);
+  assert.equal(out.decision, undefined);
+  assert.equal(out.hookSpecificOutput.hookEventName, 'Stop');
+  assert.match(out.hookSpecificOutput.additionalContext, /AskUserQuestion/);
 });

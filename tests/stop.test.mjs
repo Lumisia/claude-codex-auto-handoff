@@ -8,6 +8,7 @@ import { projectFingerprint } from '../core/lib/fingerprint.mjs';
 import { findPendingCapsule } from '../core/capsule/store.mjs';
 import { loadConfig } from '../core/lib/config.mjs';
 import { findApproval } from '../core/capsule/approval.mjs';
+import { createFromApproval } from '../core/hooks/handoff.mjs';
 
 function withRoot(fn) {
   const prev = process.env.AI_HANDOFF_ROOT;
@@ -70,7 +71,7 @@ test('disabled trigger never reads the sensor or creates a capsule', async () =>
   });
 });
 
-test('ask mode persists AWAITING_USER once and notifies without creating a capsule', async () => {
+test('ask keeps re-asking until the user resolves it, then create marks the window seen', async () => {
   await withRoot(async () => {
     const cwd = mkdtempSync(join(tmpdir(), 'ah-proj-'));
     const config = loadConfig({});
@@ -84,11 +85,21 @@ test('ask mode persists AWAITING_USER once and notifies without creating a capsu
     assert.equal(first.action, 'ask');
     assert.equal(findApproval(first.fingerprint).status, 'AWAITING_USER');
     assert.equal(findPendingCapsule(first.fingerprint), null);
-    assert.equal(notifications.length, 1);
 
+    // Asking does not mark the window seen: an unresolved ask must be free to
+    // surface again on a later Stop (the picker may have failed to render).
     const second = await handleStop({ ...args, now: 2000 });
-    assert.equal(second.reason, 'deduped');
-    assert.equal(findApproval(first.fingerprint).status, 'AWAITING_USER');
+    assert.equal(second.action, 'ask');
+    assert.equal(findApproval(second.fingerprint).status, 'AWAITING_USER');
+    assert.equal(notifications.length, 2);
+
+    // The user answers Yes → create resolves the approval AND marks the window
+    // seen, so a later Stop in the same window is finally deduped.
+    const created = createFromApproval({ cwd, sentinel: { goal: 'g', next_actions: [], status: 'in_progress' }, now: 2500 });
+    assert.equal(created.created, true);
+
+    const third = await handleStop({ ...args, now: 3000 });
+    assert.equal(third.reason, 'deduped');
   });
 });
 

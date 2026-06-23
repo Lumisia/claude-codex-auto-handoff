@@ -94,7 +94,10 @@ export async function handleStop({ input, config, readSensor, agent, now = Date.
   if (ev.action === 'none') return { action: 'none', reason: ev.reason, fingerprint: fp };
 
   if (ev.action === 'ask') {
-    writeState(gpath, markSeen(gstate, dkey, now));
+    // Do NOT mark the window seen here. Asking is not resolving: if the model
+    // fails to surface the picker, or the user never answers, a later Stop must
+    // be free to ask again. The window is marked seen only once the user
+    // actually creates or skips the capsule (see core/hooks/handoff.mjs).
     saveApproval({
       fingerprint: fp,
       key: dkey,

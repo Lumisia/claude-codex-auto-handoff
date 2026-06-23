@@ -31,6 +31,7 @@ import { rankMemoryShards, renderMemoryRecall } from './memory/recall.mjs';
 import { prepareUserPrompt, finalizeUserPrompt } from './hooks/user-prompt.mjs';
 import { projectFingerprint } from './lib/fingerprint.mjs';
 import { t, askInstruction } from './lib/i18n.mjs';
+import { stopContinuationOutput } from './lib/hook-output.mjs';
 import { readHistory } from './capsule/history.mjs';
 import { gitContext } from './lib/gitctx.mjs';
 import { statuslineSegment } from './lib/statusline-segment.mjs';
@@ -141,9 +142,9 @@ async function hookStop(args) {
   const result = await handleStop({ input, config, readSensor: sensorReader(agent, input, config), agent });
   process.stderr.write(`[handoff] stop: ${result.action} (${result.reason})\n`);
   if (result.action === 'request-summary') {
-    await writeStdout(JSON.stringify({ decision: 'block', reason: result.prompt }) + '\n');
+    await writeStdout(JSON.stringify(stopContinuationOutput(agent, result.prompt)) + '\n');
   } else if (result.action === 'ask') {
-    await writeStdout(JSON.stringify({ decision: 'block', reason: askInstruction(agent, locale) }) + '\n');
+    await writeStdout(JSON.stringify(stopContinuationOutput(agent, askInstruction(agent, locale))) + '\n');
   } else {
     await writeStdout(JSON.stringify({ continue: true }) + '\n');
   }
@@ -298,11 +299,13 @@ async function memoryRecall(args) {
 
 async function setupClaudeStatusline(args) {
   const settingsPath = argValue(args, '--settings', null);
+  const refreshRaw = Number.parseInt(argValue(args, '--refresh-interval', '30'), 10);
   const result = args.includes('--restore')
     ? restoreClaudeStatusline(settingsPath ? { settingsPath } : {})
     : installClaudeStatusline({
       settingsPath: settingsPath || defaultClaudeSettingsPath(),
       pluginRoot: argValue(args, '--plugin-root', process.env.CLAUDE_PLUGIN_ROOT || process.env.PLUGIN_ROOT),
+      refreshInterval: Number.isFinite(refreshRaw) ? refreshRaw : 30,
     });
   await writeStdout(JSON.stringify(result) + '\n');
 }

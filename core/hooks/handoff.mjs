@@ -2,12 +2,23 @@ import { projectFingerprint, projectFingerprintInfo } from '../lib/fingerprint.m
 import { appendHistory, readHistory } from '../capsule/history.mjs';
 import { readdirSync, readFileSync, existsSync, realpathSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { findPendingCapsule, verifyStoredCapsule } from '../capsule/store.mjs';
+import { findPendingCapsule, verifyStoredCapsule, readState, writeState } from '../capsule/store.mjs';
 import { publishCapsule } from '../capsule/store.mjs';
 import { findApproval, resolveApproval, restoreApprovalForRetry } from '../capsule/approval.mjs';
 import { buildCheckpointCapsule } from '../capsule/checkpoint.mjs';
-import { dataRoot, handoffDir } from '../lib/paths.mjs';
+import { dataRoot, handoffDir, globalStatePath } from '../lib/paths.mjs';
+import { markSeen } from '../lib/dedupe.mjs';
 import { stateReport } from '../lib/state-report.mjs';
+
+// Mark the rate-limit window seen once the user has actually resolved the
+// ask (create or skip). The Stop hook deliberately does NOT mark seen at ask
+// time, so dedupe must be recorded here — otherwise the same window would keep
+// re-asking after a real decision.
+function markApprovalSeen(key, now) {
+  if (!key) return;
+  const gpath = globalStatePath();
+  writeState(gpath, markSeen(readState(gpath), key, now));
+}
 
 export function statusFor(cwd) {
   const fp = projectFingerprint(cwd);
@@ -53,6 +64,7 @@ export function createFromApproval({ cwd, sentinel = {}, now = Date.now() }) {
       },
     });
     publishCapsule(fp, capsule, { status: semantic ? 'AVAILABLE' : 'DEGRADED_AVAILABLE', now });
+    markApprovalSeen(approval.key, now);
     appendHistory(fp, { event: 'created_from_approval', taskId: capsule.task_id, agent: context.agent }, { now });
     return { created: true, taskId: capsule.task_id, fingerprint: fp, degraded: !semantic };
   } catch (err) {
@@ -68,6 +80,7 @@ export function skipApproval({ cwd, now = Date.now() }) {
   const approval = findApproval(fp);
   if (!approval) return { skipped: false, reason: 'no-awaiting-approval' };
   resolveApproval(fp, { key: approval.key, decision: 'skip', now });
+  markApprovalSeen(approval.key, now);
   appendHistory(fp, { event: 'skipped', key: approval.key }, { now });
   return { skipped: true, fingerprint: fp };
 }

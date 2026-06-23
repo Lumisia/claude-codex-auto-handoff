@@ -9,6 +9,10 @@ test('loadConfig returns defaults when no user file', () => {
   const cfg = loadConfig({ path: join(tmpdir(), '__none__', 'config.json') });
   assert.equal(cfg.triggers.five_hour.threshold_percent, 80);
   assert.equal(cfg.triggers.five_hour.mode, 'ask');
+  assert.equal(cfg.sensors.claude.freshness_ms, 10_000);
+  assert.equal(cfg.approval.ttl_ms, 900_000);
+  assert.equal(cfg.realtime.enabled, true);
+  assert.equal(cfg.realtime.poll_interval_ms, 1_000);
 });
 
 test('loadConfig deep-merges user overrides', () => {

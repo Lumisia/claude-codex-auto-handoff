@@ -51,7 +51,7 @@ test('skip resolves awaiting approval without publishing', () => withRoot(() => 
 test('status reports awaiting-user independently from pending capsule', () => withRoot(() => {
   const cwd = mkdtempSync(join(tmpdir(), 'ah-project-'));
   seed(cwd);
-  assert.equal(statusFor(cwd).awaitingUser, true);
+  assert.equal(statusFor(cwd, { now: 20 }).awaitingUser, true);
 }));
 
 test('create restores approval to AWAITING_USER when publish fails (retryable)', () => withRoot(() => {
@@ -65,7 +65,7 @@ test('create restores approval to AWAITING_USER when publish fails (retryable)',
   releaseLock(blocker);
   // The approval is back to AWAITING_USER, so the user can retry; nothing was
   // published.
-  const restored = findApproval(fp);
+  const restored = findApproval(fp, { now: 20 });
   assert.ok(restored, 'approval restored for retry');
   assert.equal(restored.status, 'AWAITING_USER');
   assert.equal(findPendingCapsule(fp), null);

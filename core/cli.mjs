@@ -110,7 +110,7 @@ function sensorReader(agent, input, config) {
   if (agent === 'claude-code') {
     return async () => readClaudeRateLimit({
       sessionId: input.session_id,
-      freshnessMs: config.sensors?.claude?.freshness_ms ?? 900_000,
+      freshnessMs: config.sensors?.claude?.freshness_ms ?? 10_000,
     });
   }
   return codexSensorReader();
@@ -299,13 +299,13 @@ async function memoryRecall(args) {
 
 async function setupClaudeStatusline(args) {
   const settingsPath = argValue(args, '--settings', null);
-  const refreshRaw = Number.parseInt(argValue(args, '--refresh-interval', '30'), 10);
+  const refreshRaw = Number.parseInt(argValue(args, '--refresh-interval', '2'), 10);
   const result = args.includes('--restore')
     ? restoreClaudeStatusline(settingsPath ? { settingsPath } : {})
     : installClaudeStatusline({
       settingsPath: settingsPath || defaultClaudeSettingsPath(),
       pluginRoot: argValue(args, '--plugin-root', process.env.CLAUDE_PLUGIN_ROOT || process.env.PLUGIN_ROOT),
-      refreshInterval: Number.isFinite(refreshRaw) ? refreshRaw : 30,
+      refreshInterval: Number.isFinite(refreshRaw) ? refreshRaw : 2,
     });
   await writeStdout(JSON.stringify(result) + '\n');
 }

@@ -2,327 +2,195 @@
 
 # claude-codex-auto-handoff
 
-> **Claude Code** と **Codex** のどちらかが5時間の使用上限に近づいたら、作業中の内容を自動でもう一方へ引き継ぎます — どこまでやったかを説明し直す必要はありません。
+Claude Code と Codex の間で作業を引き継ぐプラグインです。
 
-> プラグインの内部名（マニフェストやコマンドで使う名前）は **`ai-handoff`** です。
+片方の5時間使用上限が近づくと、現在の作業状態を **capsule** という小さなファイルに保存します。もう片方のツールはその capsule を読み、同じ場所から作業を続けられます。
 
----
+プラグイン内部名は `ai-handoff` です。
 
-## このプラグインが解決する問題
+困ったときや詳しい情報を見たい場合は、[こちらをクリックしてください](docs/advanced/README.ja.md)。
 
-Claude Code と Codex には、それぞれ **5時間の使用上限** があります。作業に没頭しているときに片方の上限が来ると、たいていはもう一方のツールに切り替えて最初からやり直すことになります。目標は何だったか、すでにどんな判断をしたか、どのファイルを触ったか、何が残っているか——そのすべてを説明し直すのです。
+## なぜ必要ですか?
 
-この「説明し直し」は遅く、ミスを招きやすく、間違えやすいものです。
+Claude Code と Codex には、それぞれ5時間の使用上限があります。作業中に片方の上限が来ると、もう片方のツールで目標、変更ファイル、次にやることを説明し直す必要があります。
 
-## このプラグインがすること
+このプラグインは、その引き継ぎ情報を代わりに準備します。
 
-**リレー走**を思い浮かべてください。前の走者が疲れる前に次の走者へバトンを渡せば、次の走者はまったく同じ地点から走り続けられます。
+## capsule に入るもの
 
-1. **使用量を見張ります。** 小さなセンサーが、5時間ウィンドウをどれだけ使ったかを読み取ります。
-2. **上限に近づくと**（既定値 **80%**）、いまどこまで進んだか——目標、完了した作業、残りの作業、現在の Git ブランチ——を **capsule（カプセル）** という小さなファイルに書き出します。
-3. **もう一方のツールを開くと**、そのカプセルを読み込み、新しいエージェントにどこから再開すればよいかを正確に示します。
-4. **プロジェクトの検証済みの事実も覚えておき**、のちのセッションで関連するものだけを呼び戻します。
+- 現在の目標
+- 完了した作業
+- 残っている作業
+- 変更したファイル
+- 現在の Git ブランチとコミット
+- 次のツールが最初に確認すべきこと
 
-すべては **あなた自身のコンピューター内** で行われます。クラウドサーバーも、常駐デーモンも、別途用意するデータベースもありません。
-
-## よく出てくる用語を、やさしい言葉で
-
-| 用語 | 本当の意味 |
-|---|---|
-| **Capsule（カプセル）** | いまの作業の短いスナップショット（目標・完了した作業・未解決の課題・次の作業・変更ファイル・ブランチ）。**一度** 使うと消費済みになります。 |
-| **Handoff（引き継ぎ）** | そのスナップショットを一方のエージェント（Claude Code または Codex）からもう一方へ渡すこと。 |
-| **Verified memory（検証済みメモリ）** | 証拠（成功したテスト、コマンドの実行結果、ソースファイル）で裏づけられた、プロジェクトの継続的な事実。推測は決して保存しません。 |
-| **Hook（フック）** | エージェントが特定の瞬間（起動時、停止時、プロンプト送信時）に自動で実行する小さなスクリプト。 |
-| **Marketplace（マーケットプレイス）** | エージェントがプラグインを探して導入するために読むカタログ。このリポジトリ自体が、プラグイン1個のマーケットプレイスです。 |
-
----
+capsule は一度使われると consumed として記録されます。
 
 ## 必要なもの
 
-- **Node.js 18 以上**（ツール全体が純粋な Node 製で、**npm 依存ゼロ** です）。
-- **Claude Code または Codex**（どちらか一方でも片方向で動きますが、両方そろうと真価を発揮します）。
-- 初回インストール時に **フックを一度確認して信頼する** こと（[`hooks/hooks.json`](hooks/hooks.json) を参照）。
+- Node.js 18 以上
+- Claude Code または Codex
+- 両方使うと双方向に引き継げます
 
-Node のバージョン確認:
+Node の確認:
 
 ```bash
 node --version
 ```
 
----
-
 ## インストール
 
-プラグインを追加する方法は2つあります。通常利用には **方法 A**（この GitHub リポジトリから導入）を推奨します。先にコードを読んだり変更したい場合は **方法 B**（ローカルフォルダーを読み込む）が向いています。
+### Claude Code
 
-### 方法 A — プラグインとして導入（推奨）
-
-このリポジトリ自体が `claude-codex-auto-handoff` という **マーケットプレイス** で、その中のプラグイン名は `ai-handoff` です。各エージェントで、マーケットプレイスを追加してからプラグインを導入する2段階です。
-
-#### Claude Code
-
-Claude Code の中で（`/plugin ...` 形式）、またはターミナルで（`claude plugin ...` 形式）実行します:
+Claude Code 内で実行:
 
 ```text
 /plugin marketplace add Lumisia/claude-codex-auto-handoff
 /plugin install ai-handoff@claude-codex-auto-handoff
 ```
 
+またはターミナルで実行:
+
 ```bash
 claude plugin marketplace add Lumisia/claude-codex-auto-handoff
 claude plugin install ai-handoff@claude-codex-auto-handoff
 ```
 
-そのあと `/reload-plugins` を実行（または Claude Code を再起動）して有効化します。
+その後、`/reload-plugins` を実行するか Claude Code を再起動してください。
 
-#### Codex
+### Codex
 
 ```bash
 codex plugin marketplace add Lumisia/claude-codex-auto-handoff
 codex plugin add ai-handoff@claude-codex-auto-handoff
 ```
 
-### 方法 B — ローカル / 開発用
+## Claude Code の追加設定
 
-リポジトリをクローンし、フォルダーを直接読み込みます。`PATH/TO/claude-codex-auto-handoff` はクローンした場所に置き換えてください。
+Claude Code の使用量は status line から読みます。そのため、次の設定を一度だけ実行します。
+
+必要なのは `core/cli.mjs` が入っているローカルフォルダです。いちばん簡単な方法は、このリポジトリを clone することです。
 
 ```bash
 git clone https://github.com/Lumisia/claude-codex-auto-handoff.git
 ```
 
-Claude Code はインストールせずにフォルダーを読み込めます:
+次に、プラグインフォルダへ移動して実行します。
+
+Windows PowerShell:
+
+```powershell
+cd "C:\path\to\claude-codex-auto-handoff"
+$PLUGIN_ROOT = (Get-Location).Path
+node "$PLUGIN_ROOT\core\cli.mjs" setup:claude-statusline --plugin-root "$PLUGIN_ROOT"
+```
+
+macOS/Linux:
 
 ```bash
-claude --plugin-dir PATH/TO/claude-codex-auto-handoff
+cd "/path/to/claude-codex-auto-handoff"
+PLUGIN_ROOT="$(pwd)"
+node "$PLUGIN_ROOT/core/cli.mjs" setup:claude-statusline --plugin-root "$PLUGIN_ROOT"
 ```
 
-Codex はローカルのクローンをマーケットプレイスとして追加してから導入します:
+戻すときも、同じプラグインフォルダで実行します。
+
+Windows PowerShell:
+
+```powershell
+$PLUGIN_ROOT = (Get-Location).Path
+node "$PLUGIN_ROOT\core\cli.mjs" setup:claude-statusline --restore
+```
+
+macOS/Linux:
 
 ```bash
-codex plugin marketplace add PATH/TO/claude-codex-auto-handoff
-codex plugin add ai-handoff@claude-codex-auto-handoff
+PLUGIN_ROOT="$(pwd)"
+node "$PLUGIN_ROOT/core/cli.mjs" setup:claude-statusline --restore
 ```
 
-### Claude Code のセンサー用の追加1ステップ（両方法共通）
+Codex には追加のセンサー設定は不要です。
 
-Claude は使用量を **ステータスライン** から読み取りますが、プラグインがその枠を単独で占有できないため、このコマンドを一度実行します。既存のステータスラインがあれば安全に保持します。
+## 仕組み
 
-> ⚠️ **`PATH/TO/claude-codex-auto-handoff` を実際の絶対パスに置き換えてください** — そのまま貼り付けないでください（`Cannot find module ...\PATH\TO\...` エラーの原因になります）。Windows の例: `C:\Users\you\claude-codex-auto-handoff`。最も安定したパスはリポジトリのローカルクローン（方法 B）です——マーケットプレイスから導入した場合でも、クローンのパスはプラグイン更新で変わりません。
+1. Claude Code または Codex が使用量を確認します。
+2. 既定の80%に近づくと、プラグインが capsule を準備します。
+3. `ask` mode では、先にユーザーへ確認します。
+4. `auto` mode では、自動で capsule を作ります。
+5. もう片方のツールを開くと、capsule を読んで続きから作業します。
 
-```bash
-node "PATH/TO/claude-codex-auto-handoff/core/cli.mjs" setup:claude-statusline --plugin-root "PATH/TO/claude-codex-auto-handoff"
-```
+Claude Code では plugin monitor が使用量を自動で見張れます。`scripts/usage-monitor.mjs` を自分で実行しないでください。
 
-あとで元に戻すには:
+monitor には Claude Code v2.1.105 以上、interactive CLI session、user/personal-scope plugin install が必要です。monitor が使えない環境では Stop hook が fallback として動きます。
 
-```bash
-node "PATH/TO/claude-codex-auto-handoff/core/cli.mjs" setup:claude-statusline --restore
-```
+## 基本コマンド
 
-（Codex は使用量を公式の App Server から読み取るため、**追加のセンサー設定は不要** です。）
-
-> **ステータスライン補足:** ステータスラインに表示される `AH <pct>% · ⏳<n>` セグメントは **Claude Code 専用** です。Codex CLI は rate-limit とトークン情報をネイティブに表示しますが、外部コマンドベースのセグメントはサポートしておらず、AH セグメントは注入されません。
-
-> **i18n 補足:** 通知・プロンプト・doctor/history レポート・ステータスライン セグメントなど、人が読むすべての出力は `locale` 設定キー（`en` / `ko` / `ja` / `zh`）でローカライズできます。スキルの説明は英語のままです。
-
-### インストール後（両方法共通）
-
-**新しい** エージェントセッションを開始し、案内が出たら lifecycle フックを **確認して信頼** してください。通常利用では「フック信頼のスキップ」フラグを使わないでください——信頼を自分で判断することが、このツールの肝心な点です。
-
----
-
-## 仕組み（自動で起こる3つの瞬間）
-
-プラグインは安全な瞬間にのみ動作し、実行中のツールを途中で止めることは決してありません。
-
-- **エージェントが停止したとき**（`Stop`）: 使用量を確認します。選んだモードに応じて:
-  - `auto` → 何も尋ねずにカプセルを作成します。
-  - `ask` → 一度だけ尋ねます: *「カプセルを作成しますか? `/handoff create` | `/handoff skip`」*。
-  - `off` → 何もしません。
-- **エージェントが起動したとき**（`SessionStart`）: 待機中のカプセルがあれば検証（スキーマ、ファイルハッシュ、プロジェクト一致、有効期限）し、新しいエージェントに作業内容と薄いプロジェクトインデックスを示します。
-- **最初のプロンプトを送ったとき**（`UserPromptSubmit`）: 関連する **検証済みの** プロジェクトメモリだけを、小さなトークン予算の範囲で呼び戻します。
-
-典型的なリレーの様子:
-
-```
-Claude Code (80% 使用)  →  カプセル作成  →  Codex を開く  →  Codex が作業を再開
-        ↑                                                            │
-        └──────────────────  いつでも逆方向にも  ───────────────────┘
-```
-
----
-
-## 機能（各機能の説明）
-
-引き継ぎを発動させるセンサーから、その周りの安全網まで、機能ごとに説明します。
-
-### 1. 5時間使用量センサー
-
-プラグインは使用量を推測せず、各ツールの実際のインターフェースから読み取ります。
-
-- **Claude Code** → **ステータスライン** ブリッジが使用率とリセット時刻を記録します。データが無い、または古い場合は、推測で動かず静かに待機します。
-- **Codex** → 公式の **App Server**（`account/rateLimits/read`）が主センサーで、セッション **JSONL** の rate-limit フィールドがフォールバックです。
-
-### 2. 自動カプセル引き継ぎ
-
-しきい値を超えると、プラグインは **カプセル** を作ります: 目標・完了した作業・未解決の課題・次の作業に加え、実際の Git ブランチ/コミットとこれまでに変更したファイルまで。カプセルはアトミックな公開（一時ファイル → flush → rename）で書き込まれ、書きかけのカプセルが読まれることはありません。カプセルは **不変** で **完全性が検証** されます（コンテンツハッシュがバイト列を覆い、破損や編集を検出）。受け取る側のエージェントは短いリースで確保し、検証・注入してから初めて **消費済み** と記録します。カプセルは一度だけ使われます。
-
-### 3. 3つのトリガーモード
-
-プラグインの積極性を、全体またはプロジェクトごとに選べます: `auto`（静かに引き継ぐ）、`ask`（使用ウィンドウごとに一度尋ねる）、`off`。既定のしきい値は **80%** なので、余裕があるうちにカプセルを書きます——意味カプセルを書く行為そのものが使用量を少し消費するためです。
-
-### 4. 検証済みメモリの呼び戻し
-
-一度きりのカプセルとは別に、プラグインはプロジェクトに関する **長期メモリ** を保持します——ただし証拠（成功したテスト、コマンド結果、ソースファイル）で裏づけられた事実だけ。セッションの最初のプロンプトで、関連かつ証拠のあるメモリだけをトークン予算（既定 800）の範囲で呼び戻します。推測・隠れた推論・会話の全文は決して保存しません。
-
-### 5. 段階的なプロジェクト知識
-
-カプセルと一緒に、プロジェクトの指針・書式・落とし穴も運べます。薄い **INDEX** と **manifest**（ファイルハッシュ + dirty フラグ）により、受け取る側は全部を読み直さず、前回以降に **実際に変わったものだけ** を読みます——トークン節約。**注:** このストアはまだ自動では設定されません——知識ファイルを登録する組み込みコマンドがないため、既定の INDEX は空です。明示的な登録は予定されています。
-
-### 6. スキルとコマンド
-
-3つのスキルが挙動をまとめます: `handoff-ratelimit`（5時間トリガー）、`handoff`（`/handoff` コマンド群）、`handoff-doctor`（診断）。これらが下記の `/handoff` コマンドを駆動します。
-
-### 7. 組み込みの安全策
-
-保存前に秘密情報が伏せられ、カプセルは完全性が検証され（破損や編集を検出）、カプセルは常に *参考* 資料として扱われます——現在のユーザー指示、リポジトリのポリシー、実際のファイル、Git、テストがすべてカプセルより上位です。[プライバシーと安全性](#プライバシーと安全性) を参照。
-
-### 8. 依存ゼロ・クロスプラットフォームのコア
-
-コア全体が純粋な Node（基準 18）で、**npm 依存はありません**。コンパイルするものも、アップグレードで壊れるものもありません。Windows・macOS・Linux 上で Node 18/20/22 でテストされています。
-
----
-
-## コマンド
-
-> ⚠️ **Claude Code では、プラグインのコマンドはプラグイン名で名前空間化されます。** 下の各アクションはスラッシュメニューに **`/ai-handoff:handoff-<アクション>`** として個別に表示されます — 例: `/ai-handoff:handoff-status`、`/ai-handoff:handoff-config set notification.method off`。bare **`/ai-handoff:handoff`** は待機中のカプセルを再開します（`/ai-handoff:handoff <アクション>` 形式も受け付けます）。bare `/handoff` は *"Unknown command"* になります。下の表は読みやすさのため短い `/handoff <アクション>` 形式で書いています。**Codex** ではこれらのアクションはバンドルされたスキルから提供され、model-invoked です — 普通の言葉で頼んでください（例: *「私の ai-handoff の状態を見せて」*）。
-
-| コマンド | 動作 |
+| コマンド | 説明 |
 |---|---|
-| `/handoff` | 待機中のカプセルを再開します（最もよく使う操作）。 |
-| `/handoff status` | 現在の引き継ぎ状態を表示します。 |
-| `/handoff preview` | 注入する前にカプセルを確認します。 |
-| `/handoff checkpoint` | いますぐカプセルを手動保存します。 |
-| `/handoff create` | `ask` モードでカプセル作成を承認します。 |
-| `/handoff skip` | `ask` モードで今回の使用ウィンドウをスキップします。 |
-| `/handoff doctor` | カプセル / フック / バージョンの問題を診断します。フィンガープリントの基準（git remote / git root / パス）、データストアの場所、および別のディレクトリやフィンガープリントで待機中のカプセルも報告します — 引き継ぎが表示されない理由を説明します。 |
-| `/handoff history` | プロジェクトごとの引き継ぎライフサイクルイベント（created / resumed / skipped / created_from_approval）の監査ログを表示します。`--limit N`（既定 20）と `--cwd` を受け付けます。 |
-| `/handoff config` | 設定の表示/変更（しきい値・モード・通知・メモリ）。 |
+| `/handoff` | 待機中の capsule を再開します |
+| `/handoff status` | 現在の状態を表示します |
+| `/handoff preview` | capsule の内容を確認します |
+| `/handoff checkpoint` | 現在の状態を手動保存します |
+| `/handoff history` | 現在のプロジェクトの引き継ぎ履歴を表示します |
+| `/handoff recent` | 全プロジェクトの最近の capsule を表示します |
+| `/handoff doctor` | 設定や capsule の問題を診断します |
+| `/handoff config` | 設定を表示します |
 
-メモリは **明示的** です: 自分で選んだときだけ、しかも実際の証拠（成功したテスト、コマンド結果、ソースファイル）があるときだけ事実を保存します。隠れた推論や会話の全文は決して保存しません。
-
----
+Claude Code では `/ai-handoff:handoff-...` のように表示される場合があります。この README では読みやすさのため `/handoff` と書いています。
 
 ## 設定
 
-以下は **既定値** で、プラグイン内の [`config/defaults.json`](config/defaults.json) に入っています:
+設定ファイルの場所:
+
+- Windows: `%LOCALAPPDATA%\ai-handoff\config.json`
+- macOS: `~/Library/Application Support/ai-handoff/config.json`
+- Linux: `~/.local/state/ai-handoff/config.json`
+
+よく使う例:
 
 ```json
 {
-  "triggers": { "five_hour": { "enabled": true, "threshold_percent": 80, "mode": "ask" } },
-  "capsule":  { "completed_autocreate": false, "semantic_retry_limit": 0 },
-  "notification": { "method": "os", "fallback": "terminal" },
-  "memory": { "auto_recall": true, "auto_recall_token_budget": 800 }
-}
-```
-
-> ⚠️ **`config/defaults.json` は編集しないでください。** インストール済みプラグインの中にあり、更新のたびに上書きされます。代わりに、下記の *ユーザー設定* ファイルで設定を変更してください。
-
-### 設定ファイルの場所
-
-OS に応じたパスにファイルを **1つ** 作成（または編集）します:
-
-- **Windows:** `%LOCALAPPDATA%\ai-handoff\config.json`
-- **macOS:** `~/Library/Application Support/ai-handoff/config.json`
-- **Linux:** `~/.local/state/ai-handoff/config.json`（または `$XDG_STATE_HOME/ai-handoff/config.json`）
-
-このファイルは **既定値の上に deep-merge** されます。変更するキーだけを入れてください——ファイル全体をコピーする必要はありません。
-
-### 設定を変える方法
-
-簡単な順に3つ:
-
-1. **`/handoff config` コマンド**（推奨）:
-   - `/handoff config` — 現在の設定、ユーザー設定のパス、有効なキー一覧を表示。
-   - `/handoff config set notification.method off` — 設定を1つ変更（値は検証されます）。
-   - `/handoff config unset notification.method` — 設定を1つ既定値に戻します。
-2. **Claude Code か Codex に言葉で頼む** — 例: *「ai-handoff の通知を切って」* → エージェントが代わりにコマンドを実行します。
-3. **JSON ファイルを自分で編集** — ファイルを開いて（無ければ作成して）キーを追加します。
-
-どちらの場合も、**新しい** エージェントセッションを開始（または Claude Code で `/reload-plugins`）すると変更が反映されます。
-
-### 例
-
-75% で自動引き継ぎし、通知をオフにするユーザー設定——他はすべて既定値のまま:
-
-```json
-{
-  "triggers": { "five_hour": { "threshold_percent": 75, "mode": "auto" } },
-  "notification": { "method": "off" }
-}
-```
-
-### 設定項目の一覧
-
-| キー | 値 | 意味 |
-|---|---|---|
-| `triggers.five_hour.enabled` | `true` / `false` | 5時間トリガーの全体 on/off。 |
-| `triggers.five_hour.threshold_percent` | 数値、例: `80` | 引き継ぎを発動させる使用率%。 |
-| `triggers.five_hour.mode` | `auto` / `ask` / `off` | 静かに引き継ぐ / 一度尋ねる / 何もしない。 |
-| `triggers.five_hour.burn_rate.enabled` | `true` / `false`（既定 `false`） | オプトイン: 使用速度（100% 到達予測時刻）に基づいて早期発動します。静的しきい値に加え、予測消費まで `runway_minutes` 以内のときに引き継ぎを発動します。 |
-| `triggers.five_hour.burn_rate.runway_minutes` | 数値 5〜120（既定 `30`） | 予測消費までこの分数以内のときに発動します。`burn_rate.enabled` が `true` のときのみ使用されます。 |
-| `capsule.completed_autocreate` | `true` / `false` | 作業完了時にもカプセルを作る。 |
-| `locale` | `en` / `ko` / `ja` / `zh`（既定 `en`） | 通知・プロンプト・doctor/history レポート・ステータスライン セグメントなど、人が読むすべての出力をローカライズします。スキルの説明は英語のままです。 |
-| `notification.method` | `os` / `terminal` / `off` | OS 通知 / ターミナル出力 / **通知しない**。 |
-| `notification.fallback` | `terminal` / `off` | `method` が `os` で OS 通知が失敗したときだけ使用。 |
-| `memory.auto_recall` | `true` / `false` | 最初のプロンプトで検証済みメモリを呼び戻す。 |
-| `memory.auto_recall_token_budget` | 数値、例: `800` | 呼び戻すメモリの最大トークン数。 |
-| `statusline.show_handoff` | `true` / `false`（既定 `true`） | Claude Code のステータスラインに `AH <pct>% · ⏳<n>` セグメントを表示します。このセグメントは **Claude Code 専用** です — Codex CLI は rate-limit をネイティブに表示しますが、外部コマンドベースのセグメントはサポートしません。 |
-
-> `notification.method` を `off` にしても **OS 通知だけ** が止まります——引き継ぎは行われ、`ask` モードではエージェントがチャットに確認を表示し続けます。
-
-### プロジェクトごと
-
-上記の設定を特定のプロジェクトだけに適用するには、そのプロジェクトの fingerprint をキーにした `project_overrides` ブロックを追加します:
-
-```json
-{
-  "project_overrides": {
-    "<project-fingerprint>": {
-      "triggers": { "five_hour": { "mode": "auto" } }
+  "triggers": {
+    "five_hour": {
+      "threshold_percent": 75,
+      "mode": "auto"
     }
+  },
+  "notification": {
+    "method": "off"
   }
 }
 ```
 
----
+重要な設定:
 
-## プライバシーと安全性
+| Key | Default | Meaning |
+|---|---:|---|
+| `triggers.five_hour.threshold_percent` | `80` | 何%で引き継ぎを準備するか |
+| `triggers.five_hour.mode` | `ask` | `ask`, `auto`, `off` のどれか |
+| `approval.ttl_ms` | `900000` | 回答が有効な時間。既定は15分 |
+| `sensors.claude.freshness_ms` | `10000` | Claude 使用量 sample の有効時間。既定は10秒 |
+| `realtime.enabled` | `true` | Claude Code monitor を使うか |
+| `realtime.poll_interval_ms` | `1000` | monitor の確認間隔。既定は1秒 |
 
-- **ローカル限定。** カプセルとメモリは決してあなたのマシンから出ません。クラウドもテレメトリもありません。
-- **秘密情報は伏せられます。** 何かが保存される前に、よくある秘密のパターン（API キー、トークン、bearer ヘッダー、秘密鍵）を `[REDACTED]` に置き換えます。
-- **カプセルの完全性を検証。** いったん発行されたカプセルは不変で、コンテンツハッシュで検証され、破損や発行後の編集が検出され、検証に失敗したカプセルは拒否されます。変わるのは配送 *状態* だけです。（これは偶発的な破損・編集を捉えるもので、暗号署名ではありません。ローカルストアへの書き込み権限を持つ攻撃者がハッシュを再計算することは防げません。）
-- **常にユーザーの指示が優先。** カプセルは参考資料です。現在のユーザー指示、リポジトリ自身のポリシー、実際のファイル、Git、テスト結果は、すべてカプセルより優先されます。
+設定を変えたら新しいセッションを開始してください。
 
----
+## 注意点
 
-## テストの実行
+- capsule と memory は自分のコンピューター内に保存されます。
+- API key や token などの秘密情報は保存前に伏せられます。
+- capsule は参考資料です。実際のファイル、Git 状態、テスト結果を優先してください。
+- monitor は実行中の回答を中断しません。現在の回答が終わった後に反応することがあります。
+- project knowledge INDEX はまだ自動では埋まりません。
+
+## 開発者向けテスト
 
 ```bash
-npm test                 # 単体 + 結合テスト
-npm run validate:package # プラグイン + マーケットプレイスのマニフェストを検査
+npm test
+npm run validate:package
 ```
-
-テストは依存ゼロの純粋な `node --test` です。CI マトリクスは **Windows, macOS, Linux** 上で **Node 18 / 20 / 22** を実行します。
-
-実際のローカル Codex App Server に対してライブの end-to-end テストまで実行するには:
-
-```bash
-AH_E2E=1 npm test
-```
-
----
 
 ## ライセンス
 
-[MIT](LICENSE).
+[MIT](LICENSE)

@@ -30,3 +30,14 @@ test('shared hooks wire both automatic directions and memory recall', () => {
   assert.match(commands, /run-hook\.mjs/);
   assert.match(commands, /CLAUDE_PLUGIN_ROOT/);
 });
+
+test('Claude plugin declares an always-on usage monitor with real plugin-root paths', () => {
+  const manifest = json('../.claude-plugin/plugin.json');
+  assert.equal(manifest.experimental?.monitors, './monitors/monitors.json');
+  const monitors = json('../monitors/monitors.json');
+  const usage = monitors.find((entry) => entry.name === 'claude-usage-threshold');
+  assert.ok(usage, 'usage monitor is declared');
+  assert.match(usage.command, /^node "\$\{CLAUDE_PLUGIN_ROOT\}\/scripts\/usage-monitor\.mjs"$/);
+  assert.equal(usage.when ?? 'always', 'always');
+  assert.match(usage.description, /Claude 5-hour usage/);
+});

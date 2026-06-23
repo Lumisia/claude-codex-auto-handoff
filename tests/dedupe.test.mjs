@@ -15,6 +15,10 @@ test('different parts give a different key', () => {
   assert.notEqual(dedupeKey(parts), dedupeKey({ ...parts, resetsAt: 222 }));
 });
 
+test('dedupeKey is scoped to usage window, not session id', () => {
+  assert.equal(dedupeKey(parts), dedupeKey({ ...parts, sessionId: 's2' }));
+});
+
 test('markSeen then hasSeen is true and is immutable', () => {
   const k = dedupeKey(parts);
   const s0 = {};

@@ -1,0 +1,7 @@
+[
+  {
+    "name": "claude-usage-threshold",
+    "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/usage-monitor.mjs\"",
+    "description": "Watch Claude 5-hour usage and trigger AI handoff"
+  }
+]

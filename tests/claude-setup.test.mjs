@@ -27,6 +27,7 @@ test('install preserves an existing statusLine and is idempotent', () => withRoo
   const settings = JSON.parse(readFileSync(settingsPath, 'utf8'));
   assert.equal(settings.theme, 'dark');
   assert.match(settings.statusLine.command, /sensor:claude-statusline/);
+  assert.equal(settings.statusLine.refreshInterval, 2);
   assert.deepEqual(readClaudeStatuslineState().previous, previous);
   assert.equal(first.command, second.command);
 }));
@@ -42,9 +43,9 @@ test('re-running install backfills a refreshInterval missing from an older insta
   assert.equal('refreshInterval' in JSON.parse(readFileSync(settingsPath, 'utf8')).statusLine, false);
   // Upgrading and re-running setup must add the refreshInterval even though the
   // command string is unchanged (the alreadyInstalled short-circuit used to skip it).
-  installClaudeStatusline({ settingsPath, pluginRoot: 'C:/plugin', refreshInterval: 30 });
+  installClaudeStatusline({ settingsPath, pluginRoot: 'C:/plugin' });
   const upgraded = JSON.parse(readFileSync(settingsPath, 'utf8'));
-  assert.equal(upgraded.statusLine.refreshInterval, 30);
+  assert.equal(upgraded.statusLine.refreshInterval, 2);
   assert.match(upgraded.statusLine.command, /sensor:claude-statusline/);
   // The reversible backup must still point at the user's original statusLine.
   assert.deepEqual(readClaudeStatuslineState().previous, previous);
@@ -58,10 +59,10 @@ test('re-running install self-heals a missing reversible backup instead of throw
   // written (older build, or installed under a different data root).
   writeFileSync(settingsPath, JSON.stringify({ statusLine: { type: 'command', command } }));
   assert.equal(readClaudeStatuslineState(), null);
-  const result = installClaudeStatusline({ settingsPath, pluginRoot: 'C:/plugin', refreshInterval: 30 });
+  const result = installClaudeStatusline({ settingsPath, pluginRoot: 'C:/plugin' });
   assert.equal(result.installed, true);
   const settings = JSON.parse(readFileSync(settingsPath, 'utf8'));
-  assert.equal(settings.statusLine.refreshInterval, 30);
+  assert.equal(settings.statusLine.refreshInterval, 2);
   assert.equal(settings.statusLine.command, command);
   // The backup is recreated; restore then simply removes our statusLine.
   const state = readClaudeStatuslineState();

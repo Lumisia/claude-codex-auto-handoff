@@ -21,10 +21,10 @@ function markApprovalSeen(key, now) {
   writeState(gpath, markSeen(readState(gpath), key, now));
 }
 
-export function statusFor(cwd) {
+export function statusFor(cwd, { now = Date.now() } = {}) {
   const fp = projectFingerprint(cwd);
   const p = findPendingCapsule(fp);
-  const approval = findApproval(fp);
+  const approval = findApproval(fp, { now });
   return {
     fingerprint: fp,
     pending: !!(p && p.capsule),
@@ -37,7 +37,7 @@ export function statusFor(cwd) {
 
 export function createFromApproval({ cwd, sentinel = {}, now = Date.now() }) {
   const fp = projectFingerprint(cwd);
-  const approval = findApproval(fp);
+  const approval = findApproval(fp, { now });
   if (!approval) return { created: false, reason: 'no-awaiting-approval' };
   const resolved = resolveApproval(fp, { key: approval.key, decision: 'create', now });
   // Approval is now GENERATING. If anything below throws, restore it to
@@ -78,7 +78,7 @@ export function createFromApproval({ cwd, sentinel = {}, now = Date.now() }) {
 
 export function skipApproval({ cwd, now = Date.now() }) {
   const fp = projectFingerprint(cwd);
-  const approval = findApproval(fp);
+  const approval = findApproval(fp, { now });
   if (!approval) return { skipped: false, reason: 'no-awaiting-approval' };
   resolveApproval(fp, { key: approval.key, decision: 'skip', now });
   markApprovalSeen(approval.key, now);
@@ -244,7 +244,7 @@ export function doctorFor(cwd, { now = Date.now() } = {}) {
   let cwdResolved = cwd;
   try { cwdResolved = realpathSync(cwd); } catch {}
   const pending = findPendingCapsule(fingerprint, { now });
-  const approval = findApproval(fingerprint);
+  const approval = findApproval(fingerprint, { now });
   const issues = [];
   let verified = null;
   if (pending?.capsule) {

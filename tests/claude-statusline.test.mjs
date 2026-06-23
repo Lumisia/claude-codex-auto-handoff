@@ -38,14 +38,20 @@ test('does not record status-line input without a usable five-hour rate limit', 
   assert.equal(readClaudeRateLimit({ sessionId: 's1', now: 1, freshnessMs: 100 }), null);
 }));
 
-test('accepts a sample older than two minutes while its five-hour window is still open', () => withRoot(() => {
+test('rejects a sample older than the default freshness window', () => withRoot(() => {
   recordClaudeRateLimit({
     session_id: 's1',
     rate_limits: { five_hour: { used_percentage: 66, resets_at: 2_000 } },
   }, { now: 1_000 });
-  // Five minutes later — far past the old 120s window, but the window (resets_at
-  // = 2000s) is still open, so the reading is still valid and must be returned.
-  const reading = readClaudeRateLimit({ sessionId: 's1', now: 301_000 });
+  assert.equal(readClaudeRateLimit({ sessionId: 's1', now: 301_000 }), null);
+}));
+
+test('accepts an older sample when the caller explicitly widens freshness', () => withRoot(() => {
+  recordClaudeRateLimit({
+    session_id: 's1',
+    rate_limits: { five_hour: { used_percentage: 66, resets_at: 2_000 } },
+  }, { now: 1_000 });
+  const reading = readClaudeRateLimit({ sessionId: 's1', now: 301_000, freshnessMs: 900_000 });
   assert.equal(reading?.usedPercent, 66);
 }));
 

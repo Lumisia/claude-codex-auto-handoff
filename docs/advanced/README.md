@@ -1,0 +1,106 @@
+**English** | [한국어](README.ko.md) | [日本語](README.ja.md) | [中文](README.zh.md)
+
+# Advanced Help
+
+Use this page when ai-handoff does not behave as expected.
+
+## Contents
+
+1. [First Checks](#first-checks)
+2. [The Capsule Is Not Visible](#the-capsule-is-not-visible)
+3. [Claude Code and Codex Do Not Connect](#claude-code-and-codex-do-not-connect)
+4. [Storage Location and AI_HANDOFF_ROOT](#storage-location-and-ai_handoff_root)
+5. [Advanced Setting Keys](#advanced-setting-keys)
+
+## First Checks
+
+- Make sure Claude Code and Codex are running in the same project folder.
+- Run `/handoff status` to check whether this project has a waiting capsule.
+- Run `/handoff recent` to check whether the capsule was saved under another project.
+- Run `/handoff doctor` to diagnose storage, project identity, and capsule state.
+- After changing settings, start a new session or run `/reload-plugins` in Claude Code.
+
+The Claude Code monitor requires Claude Code v2.1.105 or newer, an interactive CLI session, and a user/personal-scope plugin install. If monitors are unavailable, the Stop hook still works after the current answer finishes.
+
+## The Capsule Is Not Visible
+
+Run `/handoff doctor` first. Most cases are one of these:
+
+- You ran the tool from a different folder, so the project identity changed.
+- The capsule was already resumed once and is now consumed.
+- Claude Code and Codex are looking at different storage locations.
+- In `ask` mode, capsule creation has not been approved yet.
+
+Suggested order:
+
+```text
+/handoff status
+/handoff recent
+/handoff history
+/handoff doctor
+```
+
+If a capsule appears in `recent` but not in `status`, it is probably stored under a different project folder.
+
+## Claude Code and Codex Do Not Connect
+
+- Install the plugin in both tools.
+- The plugin's internal name is `ai-handoff`.
+- Claude Code reads usage from the status line, so run the extra setup command once.
+- Codex does not need extra status line setup.
+- On Windows, the Store/MSIX Claude app can split `%LOCALAPPDATA%`. In that case, set `AI_HANDOFF_ROOT` to the same shared path for both tools.
+
+On Windows, checking `AI_HANDOFF_ROOT` is usually the fastest first step when the tools cannot see each other's capsules.
+
+## Storage Location and AI_HANDOFF_ROOT
+
+If `AI_HANDOFF_ROOT` is set, ai-handoff uses that path. Otherwise it uses the OS default.
+
+| OS | Default storage root |
+|---|---|
+| Windows | `%LOCALAPPDATA%\ai-handoff` |
+| macOS | `~/Library/Application Support/ai-handoff` |
+| Linux | `$XDG_STATE_HOME/ai-handoff` or `~/.local/state/ai-handoff` |
+
+Important subpaths:
+
+| Data | Path |
+|---|---|
+| Settings | `<root>/config.json` |
+| Project data | `<root>/projects/<fingerprint>` |
+| Capsules | `<root>/projects/<fingerprint>/handoff` |
+| Memory | `<root>/projects/<fingerprint>/memory` |
+| Claude usage samples | `<root>/sensors/claude` |
+
+Example shared storage on Windows:
+
+```powershell
+[Environment]::SetEnvironmentVariable("AI_HANDOFF_ROOT", "C:\Users\<you>\ai-handoff-store", "User")
+```
+
+Example on macOS/Linux:
+
+```bash
+export AI_HANDOFF_ROOT="$HOME/ai-handoff-store"
+```
+
+Restart both Claude Code and Codex after changing the environment variable.
+
+## Advanced Setting Keys
+
+`/handoff config` shows the current settings. Values must match the expected type and range.
+
+| Key | Meaning |
+|---|---|
+| `triggers.five_hour.burn_rate.enabled` | Prepare handoff earlier when usage is draining quickly |
+| `triggers.five_hour.burn_rate.runway_minutes` | Prepare when estimated runway is below this many minutes, 5-120 |
+| `capsule.completed_autocreate` | Create an automatic capsule even when the task looks complete |
+| `handoff.notify_newer_pending` | Notify when a newer pending capsule exists |
+| `locale` | Message language, `en`, `ko`, `ja`, `zh` |
+| `debug.stop_log` | Write Stop hook decision logs |
+| `memory.auto_recall` | Automatically recall verified memory at conversation start |
+| `memory.auto_recall_token_budget` | Token budget for automatic memory recall |
+| `statusline.show_handoff` | Show handoff information in the Claude status line |
+| `notification.fallback` | Use terminal notification when OS notification fails |
+
+Most users only need `threshold_percent`, `mode`, and `realtime.enabled`.

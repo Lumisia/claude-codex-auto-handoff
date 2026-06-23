@@ -30,9 +30,8 @@ export function recordClaudeRateLimit(input, { now = Date.now() } = {}) {
 
 function sampleIsUsable(sample, freshnessMs, now) {
   if (!sample || typeof sample.used_percent !== 'number') return false;
-  // A five-hour reading stays meaningful for far longer than a couple of minutes,
-  // and Claude only re-renders the status line on events, so a tight freshness
-  // window leaves the Stop hook reading nothing between renders.
+  // The setup command installs a short status-line refresh interval, so a stale
+  // sample usually means the bridge is not running and must not drive a trigger.
   if (typeof sample.captured_at !== 'number' || now - sample.captured_at > freshnessMs) return false;
   // resets_at is unix SECONDS; now is ms. Past the reset boundary the percentage
   // belongs to a previous window, so it must not drive a trigger.
@@ -45,7 +44,7 @@ function sampleIsUsable(sample, freshnessMs, now) {
 // session is usually invisible to the reader's session — which left the Stop
 // hook reading nothing and never triggering. Pick the freshest still-valid
 // sample across all sessions instead of requiring an exact session match.
-export function readClaudeRateLimit({ sessionId, freshnessMs = 900_000, now = Date.now() } = {}) {
+export function readClaudeRateLimit({ sessionId, freshnessMs = 10_000, now = Date.now() } = {}) {
   let best = null;
   let files;
   try { files = readdirSync(claudeRateLimitDir()); } catch { files = []; }

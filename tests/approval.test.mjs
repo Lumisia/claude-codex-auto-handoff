@@ -16,8 +16,13 @@ function withRoot(fn) {
 
 test('persists one awaiting-user approval with trigger context', () => withRoot(() => {
   saveApproval({ fingerprint: 'fp1', key: 'k1', context: { agent: 'codex', usedPercent: 82 }, now: 10 });
-  assert.deepEqual(findApproval('fp1'), {
-    key: 'k1', status: 'AWAITING_USER', context: { agent: 'codex', usedPercent: 82 }, updated_at: 10,
+  assert.deepEqual(findApproval('fp1', { now: 20 }), {
+    key: 'k1',
+    status: 'AWAITING_USER',
+    context: { agent: 'codex', usedPercent: 82 },
+    created_at: 10,
+    expires_at: 900_010,
+    updated_at: 10,
   });
 }));
 
@@ -25,7 +30,7 @@ test('skip resolves approval and removes it from awaiting lookup', () => withRoo
   saveApproval({ fingerprint: 'fp1', key: 'k1', context: {}, now: 10 });
   const resolved = resolveApproval('fp1', { key: 'k1', decision: 'skip', now: 20 });
   assert.equal(resolved.status, 'SKIPPED');
-  assert.equal(findApproval('fp1'), null);
+  assert.equal(findApproval('fp1', { now: 20 }), null);
 }));
 
 test('create resolves approval to generating and returns its stored context', () => withRoot(() => {
@@ -33,4 +38,10 @@ test('create resolves approval to generating and returns its stored context', ()
   const resolved = resolveApproval('fp1', { key: 'k1', decision: 'create', now: 20 });
   assert.equal(resolved.status, 'GENERATING');
   assert.equal(resolved.context.sessionId, 's1');
+}));
+
+test('expired approval is not returned or resolved', () => withRoot(() => {
+  saveApproval({ fingerprint: 'fp1', key: 'k1', context: {}, now: 10, ttlMs: 100 });
+  assert.equal(findApproval('fp1', { now: 111 }), null);
+  assert.throws(() => resolveApproval('fp1', { key: 'k1', decision: 'create', now: 111 }), /approval is expired/);
 }));

@@ -62,7 +62,7 @@ test('handoff:create resolves persisted ask state and publishes capsule', () => 
   try {
     const fp = projectFingerprint(cwd);
     saveApproval({
-      fingerprint: fp, key: 'k1', now: 1,
+      fingerprint: fp, key: 'k1', now: Date.now(),
       context: {
         cwd, agent: 'codex', sessionId: 's1', threshold: 80,
         reading: { usedPercent: 82, source: 'app-server' },

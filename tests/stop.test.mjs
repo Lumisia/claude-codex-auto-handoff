@@ -83,14 +83,14 @@ test('ask keeps re-asking until the user resolves it, then create marks the wind
     };
     const first = await handleStop(args);
     assert.equal(first.action, 'ask');
-    assert.equal(findApproval(first.fingerprint).status, 'AWAITING_USER');
+    assert.equal(findApproval(first.fingerprint, { now: 1000 }).status, 'AWAITING_USER');
     assert.equal(findPendingCapsule(first.fingerprint), null);
 
     // Asking does not mark the window seen: an unresolved ask must be free to
     // surface again on a later Stop (the picker may have failed to render).
     const second = await handleStop({ ...args, now: 2000 });
     assert.equal(second.action, 'ask');
-    assert.equal(findApproval(second.fingerprint).status, 'AWAITING_USER');
+    assert.equal(findApproval(second.fingerprint, { now: 2000 }).status, 'AWAITING_USER');
     assert.equal(notifications.length, 2);
 
     // The user answers Yes → create resolves the approval AND marks the window
@@ -100,6 +100,29 @@ test('ask keeps re-asking until the user resolves it, then create marks the wind
 
     const third = await handleStop({ ...args, now: 3000 });
     assert.equal(third.reason, 'deduped');
+  });
+});
+
+test('resolved ask dedupes across Claude session changes in the same usage window', async () => {
+  await withRoot(async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ah-proj-'));
+    const config = loadConfig({});
+    config.triggers.five_hour.mode = 'ask';
+    const args = {
+      input: { session_id: 's-before-restart', cwd }, config, readSensor: async () => reading,
+      agent: 'claude-code', now: 1000, notifyFn: () => {},
+    };
+    const first = await handleStop(args);
+    assert.equal(first.action, 'ask');
+
+    createFromApproval({ cwd, sentinel: { goal: 'g', next_actions: [], status: 'in_progress' }, now: 1500 });
+
+    const afterRestart = await handleStop({
+      ...args,
+      input: { session_id: 's-after-restart', cwd },
+      now: 2000,
+    });
+    assert.equal(afterRestart.reason, 'deduped');
   });
 });
 
@@ -115,7 +138,7 @@ test('notification off still asks but sends no notification', async () => {
       agent: 'codex', now: 1000, notifyFn: (...values) => notifications.push(values),
     });
     assert.equal(r.action, 'ask');
-    assert.equal(findApproval(r.fingerprint).status, 'AWAITING_USER');
+    assert.equal(findApproval(r.fingerprint, { now: 1000 }).status, 'AWAITING_USER');
     assert.equal(notifications.length, 0);
   });
 });

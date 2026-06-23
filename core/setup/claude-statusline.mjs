@@ -34,7 +34,7 @@ export function statuslineCommand(pluginRoot) {
 }
 
 export function installClaudeStatusline({
-  settingsPath = defaultClaudeSettingsPath(), pluginRoot, refreshInterval = 30,
+  settingsPath = defaultClaudeSettingsPath(), pluginRoot, refreshInterval = 2,
 } = {}) {
   if (!pluginRoot) throw new Error('pluginRoot is required');
   const settings = readSettings(settingsPath);

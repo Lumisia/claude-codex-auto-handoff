@@ -11,6 +11,7 @@ export const CONFIG_KEYS = {
   'triggers.five_hour.burn_rate.enabled': { type: 'boolean' },
   'triggers.five_hour.burn_rate.runway_minutes': { type: 'number', min: 5, max: 120 },
   'capsule.completed_autocreate': { type: 'boolean' },
+  'approval.ttl_ms': { type: 'number', min: 1000 },
   'handoff.notify_newer_pending': { type: 'boolean' },
   'notification.method': { type: 'enum', values: ['os', 'terminal', 'off'] },
   'notification.fallback': { type: 'enum', values: ['terminal', 'off'] },
@@ -18,6 +19,8 @@ export const CONFIG_KEYS = {
   'memory.auto_recall_token_budget': { type: 'number', min: 1 },
   'statusline.show_handoff': { type: 'boolean' },
   'sensors.claude.freshness_ms': { type: 'number', min: 1000 },
+  'realtime.enabled': { type: 'boolean' },
+  'realtime.poll_interval_ms': { type: 'number', min: 250 },
   'debug.stop_log': { type: 'boolean' },
   'locale': { type: 'enum', values: ['en', 'ko', 'ja', 'zh'] },
 };

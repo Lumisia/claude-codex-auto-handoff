@@ -3,6 +3,8 @@ import { readFileSync } from 'node:fs';
 import { handoffDir } from '../lib/paths.mjs';
 import { writeFileAtomic, acquireLock, releaseLock, withLock } from '../lib/fsx.mjs';
 
+export const DEFAULT_APPROVAL_TTL_MS = 900_000;
+
 function approvalPath(fingerprint) { return join(handoffDir(fingerprint), 'approval-state.json'); }
 
 function readApprovals(fingerprint) {
@@ -24,17 +26,33 @@ function mutate(fingerprint, fn, now) {
   }
 }
 
-export function saveApproval({ fingerprint, key, context, now = Date.now() }) {
+export function saveApproval({ fingerprint, key, context, now = Date.now(), ttlMs = DEFAULT_APPROVAL_TTL_MS }) {
   return mutate(fingerprint, (state) => {
-    const entry = { key, status: 'AWAITING_USER', context, updated_at: now };
+    const approvalTtlMs = Number.isFinite(ttlMs) ? ttlMs : DEFAULT_APPROVAL_TTL_MS;
+    const entry = {
+      key,
+      status: 'AWAITING_USER',
+      context,
+      created_at: now,
+      expires_at: approvalTtlMs > 0 ? now + approvalTtlMs : null,
+      updated_at: now,
+    };
     state.approvals[key] = entry;
     return entry;
   }, now);
 }
 
-export function findApproval(fingerprint, { key } = {}) {
+function isExpired(entry, now) {
+  if (!entry || now == null) return false;
+  if (typeof entry.expires_at === 'number') return now >= entry.expires_at;
+  if (typeof entry.updated_at === 'number') return now - entry.updated_at >= DEFAULT_APPROVAL_TTL_MS;
+  return false;
+}
+
+export function findApproval(fingerprint, { key, now = Date.now() } = {}) {
   const entries = Object.values(readApprovals(fingerprint).approvals || {})
     .filter((entry) => entry.status === 'AWAITING_USER' && (!key || entry.key === key))
+    .filter((entry) => !isExpired(entry, now))
     .sort((a, b) => b.updated_at - a.updated_at);
   return entries[0] || null;
 }
@@ -68,6 +86,7 @@ export function resolveApproval(fingerprint, { key, decision, now = Date.now() }
   return mutate(fingerprint, (state) => {
     const current = state.approvals?.[key];
     if (!current || current.status !== 'AWAITING_USER') throw new Error('approval is not awaiting user');
+    if (isExpired(current, now)) throw new Error('approval is expired');
     const resolved = { ...current, status, updated_at: now };
     state.approvals[key] = resolved;
     return resolved;

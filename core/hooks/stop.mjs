@@ -122,6 +122,7 @@ export async function handleStop({ input, config, readSensor, agent, now = Date.
       key: dkey,
       now,
       context: { agent, sessionId: input.session_id, cwd, reading, threshold: tcfg.threshold_percent },
+      ttlMs: pcfg.approval?.ttl_ms,
     });
     sendNotice('AI handoff', t('ask.create_or_skip', {}, locale));
     return { action: 'ask', reason: ev.reason, fingerprint: fp, approvalKey: dkey };

@@ -5,6 +5,13 @@ import { spawnSync } from 'node:child_process';
 import { writeFileAtomic } from '../lib/fsx.mjs';
 import { claudeStatuslineStatePath, dataRoot } from '../lib/paths.mjs';
 
+export const DEFAULT_CLAUDE_STATUSLINE_REFRESH_INTERVAL = 15;
+export const CLAUDE_STATUSLINE_DOCS = {
+  statusline: 'https://code.claude.com/docs/en/statusline',
+  settingsPrecedence: 'https://code.claude.com/docs/en/settings#settings-precedence',
+  pluginsReference: 'https://code.claude.com/docs/en/plugins-reference',
+};
+
 export function defaultClaudeSettingsPath() {
   return join(homedir(), '.claude', 'settings.json');
 }
@@ -58,10 +65,11 @@ export function isHandoffStatuslineCommand(command) {
   );
 }
 
-export function statuslineCommand(pluginRoot, { stableShim = true } = {}) {
-  if (stableShim) return `node ${quoteForStatuslineCommand(stableClaudeStatuslineRunnerPath())}`;
+export function statuslineCommand(pluginRoot, { stableShim = true, nodePath = process.execPath } = {}) {
+  const node = quoteForStatuslineCommand(nodePath || process.execPath);
+  if (stableShim) return `${node} ${quoteForStatuslineCommand(stableClaudeStatuslineRunnerPath())}`;
   const cli = join(pluginRoot, 'core', 'cli.mjs');
-  return `node ${quoteForStatuslineCommand(cli)} sensor:claude-statusline`;
+  return `${node} ${quoteForStatuslineCommand(cli)} sensor:claude-statusline`;
 }
 
 function stableRunnerSource() {
@@ -159,6 +167,71 @@ function writeState(state) {
   writeFileAtomic(claudeStatuslineStatePath(), JSON.stringify(state, null, 2) + '\n');
 }
 
+function inspectSettingsScope({ name, path, precedence }) {
+  const base = {
+    name,
+    path,
+    precedence,
+    exists: existsSync(path),
+    statusLine: null,
+    handoff: false,
+    error: null,
+  };
+  if (!base.exists) return base;
+  try {
+    const value = JSON.parse(readFileSync(path, 'utf8'));
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      throw new Error('settings root is not an object');
+    }
+    const statusLine = value.statusLine ?? null;
+    return {
+      ...base,
+      statusLine,
+      handoff: isHandoffStatuslineCommand(statusLine?.command),
+    };
+  } catch (error) {
+    return { ...base, error: error.message };
+  }
+}
+
+export function inspectClaudeStatuslineScopes({
+  cwd = process.cwd(),
+  userSettingsPath = defaultClaudeSettingsPath(),
+} = {}) {
+  const scopes = [
+    inspectSettingsScope({
+      name: 'project-local',
+      path: join(cwd, '.claude', 'settings.local.json'),
+      precedence: 3,
+    }),
+    inspectSettingsScope({
+      name: 'project',
+      path: join(cwd, '.claude', 'settings.json'),
+      precedence: 4,
+    }),
+    inspectSettingsScope({
+      name: 'user',
+      path: userSettingsPath,
+      precedence: 5,
+    }),
+  ];
+  const active = scopes
+    .filter((scope) => scope.error === null && scope.statusLine !== null)
+    .sort((a, b) => a.precedence - b.precedence)[0] || null;
+  const user = scopes.find((scope) => scope.name === 'user');
+  const userInstalled = !!user?.handoff;
+  const shadowed = !!(userInstalled && active && active.name !== 'user');
+
+  return {
+    docs: CLAUDE_STATUSLINE_DOCS,
+    userInstalled,
+    shadowed,
+    active,
+    scopes,
+    note: 'Managed settings and CLI arguments have higher precedence but are not reliably inspectable from this local plugin.',
+  };
+}
+
 function previousStatusLineForInstall({ settings, existingState, command }) {
   const current = settings.statusLine ?? null;
 
@@ -185,7 +258,7 @@ function shouldSkipAutoInstall({ settings, existingState, command }) {
 export function installClaudeStatusline({
   settingsPath = defaultClaudeSettingsPath(),
   pluginRoot,
-  refreshInterval = 2,
+  refreshInterval = DEFAULT_CLAUDE_STATUSLINE_REFRESH_INTERVAL,
   stableShim = true,
   auto = false,
   force = false,

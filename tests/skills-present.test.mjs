@@ -10,6 +10,7 @@ const files = [
   'skills/handoff-doctor/SKILL.md',
   'skills/handoff/SKILL.md',
   'skills/handoff-checkpoint/SKILL.md',
+  'skills/handoff-clear/SKILL.md',
   'skills/handoff-config/SKILL.md',
   'skills/handoff-recent/SKILL.md',
 ];

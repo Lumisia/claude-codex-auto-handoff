@@ -83,7 +83,7 @@ test('Claude SessionStart auto-installs the stable statusline runner without std
 
   assert.match(settings.statusLine.command, /claude-statusline-runner\.mjs/);
   assert.doesNotMatch(settings.statusLine.command, /plugin-cache/);
-  assert.equal(settings.statusLine.refreshInterval, 2);
+  assert.equal(settings.statusLine.refreshInterval, 15);
   assert.equal(state.plugin_root, pluginRoot);
   assert.ok(existsSync(state.runner_path));
 });

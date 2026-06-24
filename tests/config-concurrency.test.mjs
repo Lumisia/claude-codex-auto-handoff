@@ -27,6 +27,7 @@ test('concurrent config:set on different keys preserves every change', async () 
     'triggers.five_hour.enabled',
     'triggers.five_hour.burn_rate.enabled',
     'capsule.completed_autocreate',
+    'clear.auto.enabled',
     'handoff.notify_newer_pending',
     'handoff.session_start_auto_fetch',
     'memory.auto_recall',

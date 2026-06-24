@@ -1,6 +1,7 @@
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { codexHome, newestSessionFile } from './lib/sessions.mjs';
 import { readJsonlRateLimit } from './sensors/codex-jsonl.mjs';
 import { readAppServerRateLimit } from './sensors/codex-appserver.mjs';
@@ -20,11 +21,14 @@ import {
 } from './hooks/handoff.mjs';
 import { buildCheckpointCapsule } from './capsule/checkpoint.mjs';
 import { publishCapsule } from './capsule/store.mjs';
+import {
+  clearCapsules, clearProjectState, clearSummary, configuredOlderThanMs, parseOlderThan, normalizeClearScope,
+} from './capsule/clear.mjs';
 import { consumeOnPrompt } from './capsule/inject-track.mjs';
 import { findNewerPending, recordNotified, renderPendingNotice } from './capsule/pending-notice.mjs';
 import {
   installClaudeStatusline, restoreClaudeStatusline, defaultClaudeSettingsPath,
-  runPreviousStatusline,
+  runPreviousStatusline, DEFAULT_CLAUDE_STATUSLINE_REFRESH_INTERVAL,
 } from './setup/claude-statusline.mjs';
 import { buildMemoryShard, storeMemoryShard, readVerifiedShards } from './memory/store.mjs';
 import { rankMemoryShards, renderMemoryRecall } from './memory/recall.mjs';
@@ -71,6 +75,36 @@ function readStdin() {
 function argValue(args, name, fallback) {
   const index = args.indexOf(name);
   return index >= 0 && index + 1 < args.length ? args[index + 1] : fallback;
+}
+
+function runtimePluginRoot() {
+  return dirname(dirname(fileURLToPath(import.meta.url)));
+}
+
+function configuredPluginRoot() {
+  return process.env.CLAUDE_PLUGIN_ROOT || process.env.PLUGIN_ROOT || runtimePluginRoot();
+}
+
+function optionValue(args, name, fallback = null) {
+  const eq = args.find((a) => a.startsWith(`${name}=`));
+  if (eq) return eq.slice(name.length + 1);
+  return argValue(args, name, fallback);
+}
+
+function positionalArgs(args) {
+  const valueOptions = new Set(['--cwd', '--input', '--agent', '--limit', '--mode', '--older-than']);
+  const out = [];
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === '-c' || a === '--confirm' || a === '--yes') continue;
+    if (a.startsWith('--')) {
+      if (!a.includes('=') && valueOptions.has(a)) i++;
+      continue;
+    }
+    if (a.startsWith('-')) continue;
+    out.push(a);
+  }
+  return out;
 }
 
 // Reads the command's JSON payload in a shell-agnostic way. Source order:
@@ -169,8 +203,8 @@ function autoInstallClaudeStatusline(agent) {
   try {
     const result = installClaudeStatusline({
       settingsPath: defaultClaudeSettingsPath(),
-      pluginRoot: process.env.CLAUDE_PLUGIN_ROOT || process.env.PLUGIN_ROOT,
-      refreshInterval: 2,
+      pluginRoot: configuredPluginRoot(),
+      refreshInterval: DEFAULT_CLAUDE_STATUSLINE_REFRESH_INTERVAL,
       stableShim: true,
       auto: true,
     });
@@ -188,6 +222,17 @@ async function hookSessionStart(args) {
   const input = await readInput(args);
   const config = loadConfig({ path: configPath() });
   autoInstallClaudeStatusline(agent);
+  if (config.clear?.auto?.enabled === true) {
+    try {
+      clearCapsules({
+        cwd: input.cwd || process.cwd(),
+        scope: 'used',
+        olderThanMs: configuredOlderThanMs(config),
+      });
+    } catch (error) {
+      process.stderr.write(`[handoff] auto-clear failed: ${error.message}\n`);
+    }
+  }
   if (config.handoff?.session_start_auto_fetch === true) {
     await deliverSession(input, agent);
   }
@@ -245,7 +290,22 @@ async function handoffSkip(args) {
 
 async function handoffDoctor(args) {
   const input = await readInput(args);
-  await writeStdout(JSON.stringify(doctorFor(input.cwd || process.cwd()), null, 2) + '\n');
+  const cwd = input.cwd || process.cwd();
+  let fixStatusline = null;
+  if (args.includes('--fix-statusline')) {
+    const pluginRoot = argValue(args, '--plugin-root', configuredPluginRoot());
+    fixStatusline = installClaudeStatusline({
+      settingsPath: defaultClaudeSettingsPath(),
+      pluginRoot,
+      refreshInterval: DEFAULT_CLAUDE_STATUSLINE_REFRESH_INTERVAL,
+      stableShim: true,
+      auto: false,
+      force: true,
+    });
+  }
+  const report = doctorFor(cwd);
+  if (fixStatusline) report.fixStatusline = fixStatusline;
+  await writeStdout(JSON.stringify(report, null, 2) + '\n');
 }
 
 async function handoffHistory(args) {
@@ -260,6 +320,27 @@ async function handoffRecent(args) {
   const limit = Number(argValue(args, '--limit', '10')) || 10;
   const currentFingerprint = projectFingerprint(input.cwd || process.cwd());
   await writeStdout(JSON.stringify(recentCapsules({ limit, currentFingerprint }), null, 2) + '\n');
+}
+
+async function handoffClear(args) {
+  const input = await readInput(args);
+  const config = loadConfig({ path: configPath() });
+  const cwd = input.cwd || process.cwd();
+  const olderThanRaw = optionValue(args, '--older-than', input.older_than ?? input.olderThan ?? null);
+  const scope = normalizeClearScope(positionalArgs(args)[0] || input.scope || (olderThanRaw != null ? 'used' : ''));
+  const confirmed = args.includes('-c') || args.includes('--confirm') || args.includes('--yes') || input.confirmed === true;
+  let result;
+  if (!scope) {
+    result = clearSummary({ cwd, config });
+  } else if (scope === 'this_project') {
+    result = clearProjectState({ cwd, confirmed });
+  } else {
+    const olderThanMs = olderThanRaw != null
+      ? parseOlderThan(olderThanRaw)
+      : (scope === 'pending' ? null : configuredOlderThanMs(config));
+    result = clearCapsules({ cwd, scope, olderThanMs });
+  }
+  await writeStdout(JSON.stringify(result, null, 2) + '\n');
 }
 
 async function hookUserPrompt(args) {
@@ -326,13 +407,13 @@ async function memoryRecall(args) {
 
 async function setupClaudeStatusline(args) {
   const settingsPath = argValue(args, '--settings', null);
-  const refreshRaw = Number.parseInt(argValue(args, '--refresh-interval', '2'), 10);
-  const refreshInterval = Number.isFinite(refreshRaw) ? refreshRaw : 2;
+  const refreshRaw = Number.parseInt(argValue(args, '--refresh-interval', String(DEFAULT_CLAUDE_STATUSLINE_REFRESH_INTERVAL)), 10);
+  const refreshInterval = Number.isFinite(refreshRaw) ? refreshRaw : DEFAULT_CLAUDE_STATUSLINE_REFRESH_INTERVAL;
   const result = args.includes('--restore')
     ? restoreClaudeStatusline(settingsPath ? { settingsPath } : {})
     : installClaudeStatusline({
       settingsPath: settingsPath || defaultClaudeSettingsPath(),
-      pluginRoot: argValue(args, '--plugin-root', process.env.CLAUDE_PLUGIN_ROOT || process.env.PLUGIN_ROOT),
+      pluginRoot: argValue(args, '--plugin-root', configuredPluginRoot()),
       refreshInterval,
       stableShim: !args.includes('--direct'),
       auto: args.includes('--auto'),
@@ -382,6 +463,7 @@ const commands = {
   'handoff:doctor': handoffDoctor,
   'handoff:history': handoffHistory,
   'handoff:recent': handoffRecent,
+  'handoff:clear': handoffClear,
   'memory:remember': memoryRemember,
   'memory:recall': memoryRecall,
   'setup:claude-statusline': setupClaudeStatusline,

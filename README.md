@@ -76,13 +76,14 @@ You do not need to run a separate setup command. The plugin installs a stable
 local statusline runner automatically on the first Claude Code session after
 the plugin is installed or reloaded.
 
-If automatic setup fails, run:
+If automatic setup fails or `/handoff doctor` reports that project Claude
+settings shadow the user status line, run:
 
-```bash
-node "$PLUGIN_ROOT/core/cli.mjs" setup:claude-statusline --plugin-root "$PLUGIN_ROOT"
+```text
+/handoff doctor --fix-statusline
 ```
 
-To restore your previous status line:
+To restore your previous status line from a terminal:
 
 ```bash
 node "$PLUGIN_ROOT/core/cli.mjs" setup:claude-statusline --restore
@@ -118,6 +119,7 @@ The monitor requires Claude Code v2.1.105 or newer, an interactive CLI session, 
 | `/handoff checkpoint` | Save the current state manually |
 | `/handoff history` | Show this project's handoff history |
 | `/handoff recent` | Show recent capsules across all projects |
+| `/handoff clear` | Clear pending/used capsules or this project's ai-handoff state |
 | `/handoff doctor` | Diagnose setup or capsule problems |
 | `/handoff config` | Show settings |
 
@@ -154,6 +156,8 @@ Important settings:
 | `triggers.five_hour.threshold_percent` | `80` | Usage percent that prepares a handoff |
 | `triggers.five_hour.mode` | `ask` | One of `ask`, `auto`, `off` |
 | `handoff.session_start_auto_fetch` | `false` | Automatically inject a pending capsule on SessionStart |
+| `clear.older_than_days` | `30` | Default age cutoff for clearing used capsules |
+| `clear.auto.enabled` | `false` | Automatically clear old used capsules on SessionStart |
 | `approval.ttl_ms` | `900000` | How long an answer is valid, default 15 minutes |
 | `sensors.claude.freshness_ms` | `10000` | Claude usage sample freshness, default 10 seconds |
 | `realtime.enabled` | `true` | Enable the Claude Code monitor |

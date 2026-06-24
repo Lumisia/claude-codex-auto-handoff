@@ -1,13 +1,13 @@
 ---
 name: handoff
-description: Resume, create, diagnose, or recall a cross-agent handoff. Accepts [status|preview|checkpoint|create|skip|doctor|history|recent|remember|recall|config] as an argument.
+description: Resume, create, diagnose, clear, or recall a cross-agent handoff. Accepts [status|preview|checkpoint|create|skip|doctor|history|recent|clear|remember|recall|config] as an argument.
 ---
 
 # handoff
 
 Backs the `/handoff` command for both Claude Code and Codex. This skill is the
 engine: the other handoff command skills (`handoff-checkpoint`, `handoff-config`,
-`handoff-doctor`, `handoff-recent`) route through it.
+`handoff-doctor`, `handoff-recent`, `handoff-clear`) route through it.
 
 Default (no argument) = resume: ingest the pending capsule for this project and
 continue the work, treating the capsule as reference only (current files, Git,
@@ -19,9 +19,11 @@ tests, and user instructions win).
 - `/handoff checkpoint` -> author a rich capsule now (provide goal + next_actions).
 - `/handoff create` -> approve the pending ask and author a rich capsule.
 - `/handoff skip` -> decline the pending ask for this usage window.
-- `/handoff doctor` -> diagnose capsule integrity, claim recovery, and approval state.
+- `/handoff doctor` -> diagnose capsule integrity, claim recovery, approval state, and Claude statusline shadowing.
+- `/handoff doctor --fix-statusline` -> reinstall the Claude user statusline runner, then report if project/local settings still shadow it.
 - `/handoff history` -> list this project's capsule events (created/injected/resumed).
 - `/handoff recent` -> list recent capsules across all projects, newest first.
+- `/handoff clear ...` -> clear pending/used capsules or this project's ai-handoff state.
 - `/handoff remember` -> store one verified durable fact with concrete evidence.
 - `/handoff recall` -> retrieve relevant verified memory without consuming it.
 - `/handoff config` -> show or change settings (threshold, mode, notification, memory).
@@ -53,13 +55,33 @@ is fine on macOS/Linux:
 `claude`) fails capsule validation.
 
 For `create`, use `handoff:create` and the same sentinel. For `skip` and
-`doctor`, use `handoff:skip` and `handoff:doctor`.
+`doctor`, use `handoff:skip` and `handoff:doctor`. Pass `--fix-statusline` to
+`handoff:doctor` only when the user asks to repair Claude statusline setup; it
+updates user `~/.claude/settings.json` but does not edit project/local Claude
+settings that may have higher precedence.
 
 For `recent`, call `handoff:recent` (optionally `--limit <n>`, default 10). It
 scans every project bucket and returns recent capsules newest-first with status,
 source->target, goal, branch, and a `current` flag for this project's bucket:
 
     node <pluginRoot>/core/cli.mjs handoff:recent --cwd "<project dir>" --limit 10
+
+For `clear`, call `handoff:clear` with the user's scope and options:
+
+    node <pluginRoot>/core/cli.mjs handoff:clear used --older-than 7d --cwd "<project dir>"
+    node <pluginRoot>/core/cli.mjs handoff:clear --older-than 7d --cwd "<project dir>"
+    node <pluginRoot>/core/cli.mjs handoff:clear this_project --cwd "<project dir>"
+    node <pluginRoot>/core/cli.mjs handoff:clear this_project -c --cwd "<project dir>"
+
+Scopes are `pending`, `consumed`, `expired`, `used`, and `this_project`.
+`used` means old terminal capsules such as CONSUMED/EXPIRED/REJECTED/SKIPPED.
+Without `--older-than`, used-like scopes use `clear.older_than_days` (default
+30). If only `--older-than` is supplied, the scope is `used`. `pending` ignores
+age unless the user explicitly passes `--older-than`.
+If `this_project` returns `confirmationRequired: true`, ask the user once
+before rerunning the same command with `-c`. If the user already passed `-c`,
+do not ask again. This clears only ai-handoff's state folder for the current
+fingerprint; it never deletes the source repository.
 
 For `remember`, call `memory:remember` with `fact`, `evidence`, optional `tags`
 and `paths`. Only call it after evidence was actually checked. Never store model

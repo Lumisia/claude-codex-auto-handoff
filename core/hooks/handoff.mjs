@@ -10,6 +10,7 @@ import { dataRoot, handoffDir, globalStatePath } from '../lib/paths.mjs';
 import { markSeen } from '../lib/dedupe.mjs';
 import { stateReport } from '../lib/state-report.mjs';
 import { detectRootSplitRisk } from '../lib/rootcheck.mjs';
+import { inspectClaudeStatuslineScopes } from '../setup/claude-statusline.mjs';
 
 // Mark the rate-limit window seen once the user has actually resolved the
 // ask (create or skip). The Stop hook deliberately does NOT mark seen at ask
@@ -229,11 +230,14 @@ function auditBucket(fingerprint) {
 function danglingHistory(fingerprint) {
   const hd = handoffDir(fingerprint);
   const out = [];
-  const seen = new Set();
+  const latest = new Map();
   for (const ev of readHistory(fingerprint, { limit: 500 })) {
     const taskId = ev && ev.taskId;
-    if (!taskId || seen.has(taskId)) continue;
-    seen.add(taskId);
+    if (!taskId) continue;
+    latest.set(taskId, ev);
+  }
+  for (const [taskId, ev] of latest) {
+    if (ev.event === 'purged') continue;
     if (!existsSync(join(hd, taskId))) out.push({ taskId, issue: 'history-without-task', event: ev.event });
   }
   return out;
@@ -252,10 +256,20 @@ export function doctorFor(cwd, { now = Date.now() } = {}) {
     issues.push(...verified.errors);
   }
   const audit = [...auditBucket(fingerprint), ...danglingHistory(fingerprint)];
+  const claudeStatusline = inspectClaudeStatuslineScopes({ cwd });
   // Environment advisories that do not imply store corruption (so they do not
   // flip `healthy`), but warn the user about a misconfiguration that silently
   // breaks cross-agent sharing — e.g. the Windows MSIX %LOCALAPPDATA% split.
-  const warnings = [detectRootSplitRisk()].filter(Boolean);
+  const warnings = [
+    detectRootSplitRisk(),
+    claudeStatusline.shadowed ? {
+      type: 'claude-statusline-shadowed',
+      message: 'ai-handoff is installed in Claude user settings, but a higher-precedence project/local statusLine is active.',
+      activeScope: claudeStatusline.active?.name,
+      activePath: claudeStatusline.active?.path,
+      docs: claudeStatusline.docs.settingsPrecedence,
+    } : null,
+  ].filter(Boolean);
   return {
     fingerprint,
     basis,
@@ -265,6 +279,7 @@ export function doctorFor(cwd, { now = Date.now() } = {}) {
     issues,
     audit,
     warnings,
+    claudeStatusline,
     pending: pending ? {
       taskId: pending.taskId,
       status: pending.state.status,

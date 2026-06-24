@@ -48,6 +48,11 @@ If a capsule appears in `recent` but not in `status`, it is probably stored unde
 - Install the plugin in both tools.
 - The plugin's internal name is `ai-handoff`.
 - Claude Code reads usage from the status line; the plugin installs its statusline runner automatically on the first Claude Code session after install or reload.
+- If the status line still does not update, run `/handoff doctor`. Claude
+  project settings can override user settings. Run `/handoff doctor
+  --fix-statusline` to reinstall the user statusline runner; if doctor still
+  reports `claude-statusline-shadowed`, remove or adjust the higher-precedence
+  `.claude/settings.local.json` or `.claude/settings.json` statusLine entry.
 - Codex does not need extra status line setup.
 - On Windows, the Store/MSIX Claude app can split `%LOCALAPPDATA%`. In that case, set `AI_HANDOFF_ROOT` to the same shared path for both tools.
 
@@ -91,11 +96,27 @@ Restart both Claude Code and Codex after changing the environment variable.
 
 `/handoff config` shows the current settings. Values must match the expected type and range.
 
+Clear old local handoff state with:
+
+```text
+/handoff clear used
+/handoff clear used --older-than 7d
+/handoff clear --older-than 7d
+/handoff clear pending
+/handoff clear this_project
+/handoff clear this_project -c
+```
+
+`this_project` removes only this project's ai-handoff state folder, not the
+source repository. Without `-c`, it returns a confirmation preview first.
+
 | Key | Meaning |
 |---|---|
 | `triggers.five_hour.burn_rate.enabled` | Prepare handoff earlier when usage is draining quickly |
 | `triggers.five_hour.burn_rate.runway_minutes` | Prepare when estimated runway is below this many minutes, 5-120 |
 | `capsule.completed_autocreate` | Create an automatic capsule even when the task looks complete |
+| `clear.auto.enabled` | Automatically clear old used capsules on SessionStart |
+| `clear.older_than_days` | Default age cutoff for clearing used capsules, default 30 |
 | `handoff.notify_newer_pending` | Notify when a newer pending capsule exists |
 | `handoff.session_start_auto_fetch` | Automatically inject and consume a pending capsule from SessionStart, default `false` |
 | `locale` | Message language, `en`, `ko`, `ja`, `zh` |

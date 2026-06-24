@@ -11,6 +11,8 @@ export const CONFIG_KEYS = {
   'triggers.five_hour.burn_rate.enabled': { type: 'boolean' },
   'triggers.five_hour.burn_rate.runway_minutes': { type: 'number', min: 5, max: 120 },
   'capsule.completed_autocreate': { type: 'boolean' },
+  'clear.auto.enabled': { type: 'boolean' },
+  'clear.older_than_days': { type: 'number', min: 1 },
   'approval.ttl_ms': { type: 'number', min: 1000 },
   'handoff.notify_newer_pending': { type: 'boolean' },
   'handoff.session_start_auto_fetch': { type: 'boolean' },

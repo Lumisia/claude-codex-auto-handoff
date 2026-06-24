@@ -24,6 +24,7 @@ test('validateKeyValue enforces enums and coerces numeric/boolean strings', () =
   assert.equal(validateKeyValue('triggers.five_hour.threshold_percent', '75'), 75);
   assert.throws(() => validateKeyValue('triggers.five_hour.threshold_percent', 150), />= 1|<= 100/);
   assert.equal(validateKeyValue('memory.auto_recall', 'false'), false);
+  assert.equal(validateKeyValue('handoff.session_start_auto_fetch', 'true'), true);
   assert.equal(validateKeyValue('notification.method', 'off'), 'off');
 });
 

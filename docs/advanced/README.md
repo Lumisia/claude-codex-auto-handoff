@@ -30,6 +30,7 @@ Run `/handoff doctor` first. Most cases are one of these:
 - The capsule was already resumed once and is now consumed.
 - Claude Code and Codex are looking at different storage locations.
 - In `ask` mode, capsule creation has not been approved yet.
+- By default, a new session does not automatically fetch a capsule; run `/handoff`. Set `handoff.session_start_auto_fetch` to `true` only if you want SessionStart auto-fetch.
 
 Suggested order:
 
@@ -96,6 +97,7 @@ Restart both Claude Code and Codex after changing the environment variable.
 | `triggers.five_hour.burn_rate.runway_minutes` | Prepare when estimated runway is below this many minutes, 5-120 |
 | `capsule.completed_autocreate` | Create an automatic capsule even when the task looks complete |
 | `handoff.notify_newer_pending` | Notify when a newer pending capsule exists |
+| `handoff.session_start_auto_fetch` | Automatically inject and consume a pending capsule from SessionStart, default `false` |
 | `locale` | Message language, `en`, `ko`, `ja`, `zh` |
 | `debug.stop_log` | Write Stop hook decision logs |
 | `memory.auto_recall` | Automatically recall verified memory at conversation start |

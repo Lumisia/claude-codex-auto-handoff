@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -20,6 +20,44 @@ test('hook:session-start with no pending prints empty context', () => {
   const cwd = mkdtempSync(join(tmpdir(), 'ah-proj-'));
   const out = run(['hook:session-start'], JSON.stringify({ cwd }), { AI_HANDOFF_ROOT: root });
   assert.equal(out.trim(), '');
+});
+
+test('hook:session-start does not auto-fetch a pending capsule by default', () => {
+  const root = mkdtempSync(join(tmpdir(), 'ah-cli-'));
+  const cwd = mkdtempSync(join(tmpdir(), 'ah-proj-'));
+  const env = { AI_HANDOFF_ROOT: root };
+  run(['handoff:checkpoint', '--agent', 'claude-code'], JSON.stringify({
+    cwd, session_id: 'claude-s', sentinel: { goal: 'manual only' },
+  }), env);
+
+  const out = run(['hook:session-start', '--agent', 'codex'], JSON.stringify({
+    cwd, session_id: 'codex-s',
+  }), env);
+
+  assert.equal(out.trim(), '');
+  assert.equal(JSON.parse(run(['handoff:status'], JSON.stringify({ cwd }), env)).pending, true);
+});
+
+test('hook:session-start auto-fetches a pending capsule when explicitly enabled', () => {
+  const root = mkdtempSync(join(tmpdir(), 'ah-cli-'));
+  const cwd = mkdtempSync(join(tmpdir(), 'ah-proj-'));
+  const env = { AI_HANDOFF_ROOT: root };
+  writeFileSync(join(root, 'config.json'), JSON.stringify({
+    handoff: { session_start_auto_fetch: true },
+  }));
+  run(['handoff:checkpoint', '--agent', 'claude-code'], JSON.stringify({
+    cwd, session_id: 'claude-s', sentinel: { goal: 'automatic fetch enabled' },
+  }), env);
+
+  const out = run(['hook:session-start', '--agent', 'codex'], JSON.stringify({
+    cwd, session_id: 'codex-s',
+  }), env);
+
+  assert.match(out, /automatic fetch enabled/);
+  run(['hook:user-prompt', '--agent', 'codex'], JSON.stringify({
+    cwd, session_id: 'codex-s', prompt: 'continue',
+  }), env);
+  assert.equal(JSON.parse(run(['handoff:status'], JSON.stringify({ cwd }), env)).pending, false);
 });
 
 test('Claude SessionStart auto-installs the stable statusline runner without stdout noise', () => {

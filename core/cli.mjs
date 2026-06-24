@@ -186,8 +186,11 @@ function autoInstallClaudeStatusline(agent) {
 async function hookSessionStart(args) {
   const agent = argValue(args, '--agent', 'codex');
   const input = await readInput(args);
+  const config = loadConfig({ path: configPath() });
   autoInstallClaudeStatusline(agent);
-  await deliverSession(input, agent);
+  if (config.handoff?.session_start_auto_fetch === true) {
+    await deliverSession(input, agent);
+  }
 }
 
 async function handoffStatus(args) {
@@ -262,16 +265,19 @@ async function handoffRecent(args) {
 async function hookUserPrompt(args) {
   const agent = argValue(args, '--agent', 'codex');
   const input = await readInput(args);
-  // The first prompt of a session is proof it is live: consume the handoff that
-  // SessionStart injected read-only. Best-effort — never break the prompt path.
-  try { consumeOnPrompt({ input, agent }); }
-  catch (error) { process.stderr.write(`[handoff] consume-on-prompt failed: ${error.message}\n`); }
   const config = loadConfig({ path: configPath() });
+  // If SessionStart auto-fetch is enabled, the first prompt proves the session
+  // is live and can consume the read-only injection. Best-effort: never break
+  // the prompt path.
+  if (config.handoff?.session_start_auto_fetch === true) {
+    try { consumeOnPrompt({ input, agent }); }
+    catch (error) { process.stderr.write(`[handoff] consume-on-prompt failed: ${error.message}\n`); }
+  }
   const parts = [];
 
-  // A peer checkpoint created after this session started never reaches a running
-  // session on its own (SessionStart injects once). Surface it as a one-time
-  // nudge with key info so the model can pull it with /handoff. Best-effort.
+  // A peer checkpoint created after this session started will not reach a
+  // running session on its own. Surface it as a one-time nudge with key info so
+  // the model can pull it with /handoff. Best-effort.
   if (config.handoff?.notify_newer_pending !== false) {
     try {
       const notice = findNewerPending({ input, agent });

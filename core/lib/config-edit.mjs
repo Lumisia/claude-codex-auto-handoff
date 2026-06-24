@@ -13,6 +13,7 @@ export const CONFIG_KEYS = {
   'capsule.completed_autocreate': { type: 'boolean' },
   'approval.ttl_ms': { type: 'number', min: 1000 },
   'handoff.notify_newer_pending': { type: 'boolean' },
+  'handoff.session_start_auto_fetch': { type: 'boolean' },
   'notification.method': { type: 'enum', values: ['os', 'terminal', 'off'] },
   'notification.fallback': { type: 'enum', values: ['terminal', 'off'] },
   'memory.auto_recall': { type: 'boolean' },

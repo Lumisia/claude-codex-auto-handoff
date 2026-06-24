@@ -102,7 +102,7 @@ Codex needs no extra sensor setup.
 2. Near the default 80% threshold, the plugin prepares a capsule.
 3. In `ask` mode, it asks you first.
 4. In `auto` mode, it creates the capsule automatically.
-5. When you open the other tool, it reads the capsule and continues.
+5. Run `/handoff` in the other tool to read the capsule and continue. If `handoff.session_start_auto_fetch` is enabled, a new session can fetch it automatically.
 
 In Claude Code, a plugin monitor can watch usage automatically. Do not run `scripts/usage-monitor.mjs` yourself.
 
@@ -153,6 +153,7 @@ Important settings:
 |---|---:|---|
 | `triggers.five_hour.threshold_percent` | `80` | Usage percent that prepares a handoff |
 | `triggers.five_hour.mode` | `ask` | One of `ask`, `auto`, `off` |
+| `handoff.session_start_auto_fetch` | `false` | Automatically inject a pending capsule on SessionStart |
 | `approval.ttl_ms` | `900000` | How long an answer is valid, default 15 minutes |
 | `sensors.claude.freshness_ms` | `10000` | Claude usage sample freshness, default 10 seconds |
 | `realtime.enabled` | `true` | Enable the Claude Code monitor |

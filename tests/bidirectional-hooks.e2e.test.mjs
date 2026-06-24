@@ -33,6 +33,7 @@ test('shared automatic hooks hand off Codex → Claude → Codex', () => {
   }) + '\n');
   writeFileSync(join(data, 'config.json'), JSON.stringify({
     triggers: { five_hour: { enabled: true, threshold_percent: 80, mode: 'auto' } },
+    handoff: { session_start_auto_fetch: true },
   }));
 
   const common = { AI_HANDOFF_ROOT: data, AH_NO_APPSERVER: '1', CODEX_HOME: codexHome };

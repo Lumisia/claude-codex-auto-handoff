@@ -156,6 +156,8 @@ Claude Code에서는 명령이 `/ai-handoff:handoff-...`처럼 보일 수 있습
 |---|---:|---|
 | `triggers.five_hour.threshold_percent` | `80` | 몇 %에서 인계를 준비할지 |
 | `triggers.five_hour.mode` | `ask` | `ask`, `auto`, `off` 중 하나 |
+| `clear.older_than_days` | `30` | used 캡슐 정리 기준, 기본 30일 |
+| `clear.auto.enabled` | `false` | SessionStart 때 오래된 used 캡슐 자동 삭제를 켤지 |
 | `approval.ttl_ms` | `900000` | 질문 응답이 유효한 시간, 기본 15분 |
 | `sensors.claude.freshness_ms` | `10000` | Claude 사용량 샘플 유효 시간, 기본 10초 |
 | `realtime.enabled` | `true` | Claude Code monitor 사용 여부 |

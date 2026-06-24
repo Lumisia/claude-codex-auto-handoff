@@ -102,7 +102,7 @@ Restart both Claude Code and Codex after changing the environment variable.
 | `triggers.five_hour.burn_rate.enabled` | Prepare handoff earlier when usage is draining quickly |
 | `triggers.five_hour.burn_rate.runway_minutes` | Prepare when estimated runway is below this many minutes, 5-120 |
 | `capsule.completed_autocreate` | Create an automatic capsule even when the task looks complete |
-| `clear.auto.enabled` | Automatically clear old used capsules on SessionStart |
+| `clear.auto.enabled` | Turn SessionStart auto-clear on or off for old used capsules, default `false` |
 | `clear.older_than_days` | Default age cutoff for clearing used capsules, default 30 |
 | `handoff.notify_newer_pending` | Notify when a newer pending capsule exists |
 | `handoff.session_start_auto_fetch` | Automatically inject and consume a pending capsule from SessionStart, default `false` |
@@ -155,3 +155,9 @@ Examples:
 If `--older-than` is supplied without a scope, the scope defaults to `used`.
 When no `--older-than` is supplied, used-like scopes use
 `clear.older_than_days` from config. The default is 30 days.
+
+Automatic cleanup is separate from the manual command. Set
+`clear.auto.enabled` to `true` to run old-`used` cleanup on SessionStart. It is
+off by default (`false`) and does not run continuously in the background; it
+runs when a SessionStart hook fires. The automatic age cutoff uses
+`clear.older_than_days`, default 30 days.

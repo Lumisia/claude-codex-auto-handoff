@@ -153,6 +153,8 @@ monitor 需要 Claude Code v2.1.105 或更高版本、interactive CLI session，
 |---|---:|---|
 | `triggers.five_hour.threshold_percent` | `80` | 到多少百分比时准备交接 |
 | `triggers.five_hour.mode` | `ask` | `ask`, `auto`, `off` 之一 |
+| `clear.older_than_days` | `30` | 清理 used capsule 的默认时间阈值 |
+| `clear.auto.enabled` | `false` | 是否在 SessionStart 时自动删除旧 used capsule |
 | `approval.ttl_ms` | `900000` | 回答有效时间，默认 15 分钟 |
 | `sensors.claude.freshness_ms` | `10000` | Claude 用量 sample 有效时间，默认 10 秒 |
 | `realtime.enabled` | `true` | 是否启用 Claude Code monitor |

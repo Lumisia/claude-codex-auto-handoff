@@ -157,7 +157,7 @@ Important settings:
 | `triggers.five_hour.mode` | `ask` | One of `ask`, `auto`, `off` |
 | `handoff.session_start_auto_fetch` | `false` | Automatically inject a pending capsule on SessionStart |
 | `clear.older_than_days` | `30` | Default age cutoff for clearing used capsules |
-| `clear.auto.enabled` | `false` | Automatically clear old used capsules on SessionStart |
+| `clear.auto.enabled` | `false` | Turn SessionStart auto-clear on or off for old used capsules |
 | `approval.ttl_ms` | `900000` | How long an answer is valid, default 15 minutes |
 | `sensors.claude.freshness_ms` | `10000` | Claude usage sample freshness, default 10 seconds |
 | `realtime.enabled` | `true` | Enable the Claude Code monitor |

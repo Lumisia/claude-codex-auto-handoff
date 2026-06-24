@@ -96,6 +96,8 @@ export AI_HANDOFF_ROOT="$HOME/ai-handoff-store"
 | `triggers.five_hour.burn_rate.enabled` | 使用量の減りが速いとき、早めに引き継ぎを準備するか |
 | `triggers.five_hour.burn_rate.runway_minutes` | 残り時間が何分以下なら準備するか、5-120 |
 | `capsule.completed_autocreate` | 作業完了に見える状態でも自動 capsule を作るか |
+| `clear.auto.enabled` | SessionStart 時に古い used capsule の自動削除をオン/オフするか。既定値は `false` |
+| `clear.older_than_days` | used capsule を削除する既定の経過日数。既定値は 30 日 |
 | `handoff.notify_newer_pending` | より新しい待機中 capsule があるとき通知するか |
 | `locale` | メッセージ言語、`en`, `ko`, `ja`, `zh` |
 | `debug.stop_log` | Stop hook の判断ログを残すか |
@@ -142,3 +144,5 @@ export AI_HANDOFF_ROOT="$HOME/ai-handoff-store"
 ```
 
 scope なしで `--older-than` だけを指定すると、scope は `used` になります。`--older-than` を省略した場合、used 系 scope は `clear.older_than_days` の設定値を使います。既定値は 30 日です。
+
+自動削除は手動コマンドとは別です。`clear.auto.enabled` を `true` にすると、SessionStart 時に古い `used` capsule の削除を実行します。既定値はオフ (`false`) です。バックグラウンドで常時動くのではなく、SessionStart hook が実行されたときだけ動きます。自動削除の経過日数は `clear.older_than_days` を使い、既定値は 30 日です。

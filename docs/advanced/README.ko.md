@@ -96,6 +96,8 @@ export AI_HANDOFF_ROOT="$HOME/ai-handoff-store"
 | `triggers.five_hour.burn_rate.enabled` | 빠르게 사용량이 줄어들 때 더 일찍 인계를 준비할지 |
 | `triggers.five_hour.burn_rate.runway_minutes` | 남은 시간이 몇 분 이하일 때 준비할지, 5-120 |
 | `capsule.completed_autocreate` | 작업 완료 상태에서도 자동 캡슐을 만들지 |
+| `clear.auto.enabled` | SessionStart 때 오래된 used 캡슐 자동 삭제를 켤지, 기본값 `false` |
+| `clear.older_than_days` | used 캡슐 정리 기준일, 기본 30일 |
 | `handoff.notify_newer_pending` | 더 새로운 대기 캡슐이 있으면 알려줄지 |
 | `locale` | 메시지 언어, `en`, `ko`, `ja`, `zh` |
 | `debug.stop_log` | Stop hook 판단 로그를 남길지 |
@@ -142,3 +144,5 @@ export AI_HANDOFF_ROOT="$HOME/ai-handoff-store"
 ```
 
 scope 없이 `--older-than`만 쓰면 scope는 `used`로 처리됩니다. `--older-than`을 생략하면 used 계열 scope는 `clear.older_than_days` 설정값을 사용하며 기본값은 30일입니다.
+
+자동 정리는 수동 명령과 별도입니다. `clear.auto.enabled`를 `true`로 설정하면 SessionStart 때 오래된 `used` 캡슐 정리를 실행합니다. 기본값은 꺼짐(`false`)이며, 백그라운드에서 계속 실행되는 방식이 아니라 SessionStart hook이 실행될 때만 동작합니다. 자동 정리 기준일은 `clear.older_than_days`를 사용하며 기본값은 30일입니다.

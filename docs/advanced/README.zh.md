@@ -96,6 +96,8 @@ export AI_HANDOFF_ROOT="$HOME/ai-handoff-store"
 | `triggers.five_hour.burn_rate.enabled` | 用量下降很快时，是否更早准备交接 |
 | `triggers.five_hour.burn_rate.runway_minutes` | 预计剩余时间低于多少分钟时准备，5-120 |
 | `capsule.completed_autocreate` | 即使任务看起来已完成，是否也自动创建 capsule |
+| `clear.auto.enabled` | 是否在 SessionStart 时自动删除旧 used capsule，默认 `false` |
+| `clear.older_than_days` | 清理 used capsule 的默认时间阈值，默认 30 天 |
 | `handoff.notify_newer_pending` | 有更新的等待中 capsule 时是否通知 |
 | `locale` | 消息语言，`en`, `ko`, `ja`, `zh` |
 | `debug.stop_log` | 是否写入 Stop hook 判断日志 |
@@ -142,3 +144,5 @@ export AI_HANDOFF_ROOT="$HOME/ai-handoff-store"
 ```
 
 如果只传 `--older-than` 而不传 scope，scope 会按 `used` 处理。省略 `--older-than` 时，used 类 scope 使用 `clear.older_than_days` 配置值，默认 30 天。
+
+自动清理和手动命令是分开的。把 `clear.auto.enabled` 设为 `true` 后，会在 SessionStart 时清理旧的 `used` capsule。默认关闭（`false`）。它不会在后台持续运行，只会在 SessionStart hook 执行时运行。自动清理的时间阈值使用 `clear.older_than_days`，默认 30 天。

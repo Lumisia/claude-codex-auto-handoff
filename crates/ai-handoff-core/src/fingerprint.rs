@@ -132,25 +132,87 @@ fn sanitize_remote_url(url: &str) -> String {
     out
 }
 
-/// Lexically resolve `cleaned` against `root` the way Node `path.resolve` does
-/// (POSIX semantics, matching v1's basis strings): join with `/`, then collapse
-/// `.` and `..` segments WITHOUT touching the filesystem — the remote target may
-/// not exist locally, so we must never canonicalize.
+/// Lexically resolve `cleaned` against `root` the way Node `path.resolve` does,
+/// using the PLATFORM-DEFAULT resolver — `path.win32.resolve` on Windows,
+/// `path.posix.resolve` on Unix — to stay byte-for-byte identical to v1, which
+/// calls Node's `resolve` (and thus inherits the OS-specific variant). The split
+/// matters: a relative remote like `../upstream.git` against `C:/repo/root`
+/// resolves to `C:\repo\upstream.git` on Windows but `/repo/upstream.git` on
+/// Unix; emitting the POSIX form on Windows would split capsule buckets.
+///
+/// Resolution is LEXICAL only — segments are collapsed without touching the
+/// filesystem, because the remote target may not exist locally and
+/// canonicalizing would make the fingerprint depend on filesystem state.
+///
+/// Callers normalize `root`/`cleaned` to forward slashes before calling, but
+/// the Windows variant accepts both `/` and `\` as separators (as `path.win32`
+/// does) for safety.
 fn lexical_resolve(root: &str, cleaned: &str) -> String {
-    // path.resolve treats an absolute `cleaned` as the result; but callers only
-    // reach this for non-absolute, non-scheme, non-scp, non-windows-drive
-    // remotes, so `cleaned` is always relative here.
+    #[cfg(windows)]
+    {
+        lexical_resolve_win32(root, cleaned)
+    }
+    #[cfg(not(windows))]
+    {
+        lexical_resolve_posix(root, cleaned)
+    }
+}
+
+/// `path.posix.resolve(root, cleaned)` for the cases v1 reaches: `cleaned` is
+/// always relative, so the combined path joins with `/`, collapses `.`/`..`, and
+/// keeps the POSIX `/` separator.
+#[cfg_attr(windows, allow(dead_code))]
+fn lexical_resolve_posix(root: &str, cleaned: &str) -> String {
     let combined = format!("{root}/{cleaned}");
-    // Determine if the combined path is absolute (POSIX: starts with '/').
     let is_absolute = combined.starts_with('/');
+    let joined = collapse_segments(&combined, is_absolute).join("/");
+    if is_absolute {
+        format!("/{joined}")
+    } else if joined.is_empty() {
+        ".".to_string()
+    } else {
+        joined
+    }
+}
+
+/// `path.win32.resolve(root, cleaned)` for the cases v1 reaches. Treats both `/`
+/// and `\` as separators, collapses `.`/`..` lexically, and emits a `\`-joined
+/// path with a preserved (or, for a drive-less rooted path, cwd-derived) drive —
+/// matching Node's win32 resolver exactly. `cleaned` is always relative here.
+#[cfg(windows)]
+fn lexical_resolve_win32(root: &str, cleaned: &str) -> String {
+    let to_slash = |s: &str| s.replace('\\', "/");
+    let root_s = to_slash(root);
+    let cleaned_s = to_slash(cleaned);
+
+    // Split the root's drive (`C:`) from its path. A root from
+    // `git rev-parse --show-toplevel` always carries a drive on Windows; the
+    // drive-less rooted case (`/repo/root`) is mirrored faithfully for
+    // completeness — Node prepends the cwd's drive there.
+    let (drive, root_path) = split_win32_drive(&root_s);
+    let drive = drive.unwrap_or_else(cwd_drive);
+
+    let combined = format!("{root_path}/{cleaned_s}");
+    // After the drive is removed, a Windows root path is absolute iff it begins
+    // with a separator (path.win32 treats `\` and `/` as roots).
+    let is_absolute = combined.starts_with('/');
+    let joined = collapse_segments(&combined, is_absolute).join("\\");
+    if joined.is_empty() {
+        format!("{drive}\\")
+    } else {
+        format!("{drive}\\{joined}")
+    }
+}
+
+/// Collapse `.`/`..` segments of a `/`-separated path. For an absolute path,
+/// `..` at the root is a no-op (matches `path.resolve`); for a relative path the
+/// leading `..` segments are preserved.
+fn collapse_segments(combined: &str, is_absolute: bool) -> Vec<&str> {
     let mut stack: Vec<&str> = Vec::new();
     for seg in combined.split('/') {
         match seg {
             "" | "." => {}
             ".." => {
-                // Pop a real segment; for an absolute path, `..` at the root is
-                // a no-op (matches path.resolve). For a relative path, keep the
-                // `..` so it is preserved.
                 if let Some(last) = stack.last() {
                     if *last != ".." {
                         stack.pop();
@@ -164,14 +226,36 @@ fn lexical_resolve(root: &str, cleaned: &str) -> String {
             other => stack.push(other),
         }
     }
-    let joined = stack.join("/");
-    if is_absolute {
-        format!("/{joined}")
-    } else if joined.is_empty() {
-        ".".to_string()
+    stack
+}
+
+/// Split a leading `X:` drive designator off a forward-slashed path. Returns
+/// `(Some("C:"), "/repo/root")` for `C:/repo/root`, `(Some("C:"), "repo/root")`
+/// for the drive-relative `C:repo/root`, and `(None, "/repo/root")` when there
+/// is no drive.
+#[cfg(windows)]
+fn split_win32_drive(p: &str) -> (Option<String>, &str) {
+    let b = p.as_bytes();
+    if b.len() >= 2 && b[0].is_ascii_alphabetic() && b[1] == b':' {
+        let drive: String = p[..2].to_string();
+        (Some(drive), &p[2..])
     } else {
-        joined
+        (None, p)
     }
+}
+
+/// The drive of the process cwd (`C:`), used only for a drive-less rooted path
+/// — the same value Node's `path.win32.resolve` prepends in that case.
+#[cfg(windows)]
+fn cwd_drive() -> String {
+    std::env::current_dir()
+        .ok()
+        .and_then(|p| {
+            let s = p.to_string_lossy().replace('\\', "/");
+            let (d, _) = split_win32_drive(&s);
+            d
+        })
+        .unwrap_or_else(|| "C:".to_string())
 }
 
 // --- Filesystem fallback (runs ONLY when git is blocked) -------------------
@@ -241,9 +325,10 @@ fn parse_remote_origin_url(text: &str) -> Option<String> {
 /// Match `^\[([\w.-]+)(?:\s+"(.*)")?\]$`. Returns (section, optional subsection).
 fn parse_section_header(line: &str) -> Option<(String, Option<String>)> {
     let inner = line.strip_prefix('[')?.strip_suffix(']')?;
-    // section name: [\w.-]+
+    // section name: [\w.-]+ — `\w` is ASCII-only in v1's JS regex, so match
+    // ASCII alphanumerics (not Unicode `is_alphanumeric`) to stay byte-parity.
     let name_end = inner
-        .find(|c: char| !(c.is_alphanumeric() || c == '_' || c == '.' || c == '-'))
+        .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_' || c == '.' || c == '-'))
         .unwrap_or(inner.len());
     let name = &inner[..name_end];
     if name.is_empty() {
@@ -538,6 +623,23 @@ mod tests {
             }
         }
     }
+    // Like FixedRemote but with a caller-chosen `--show-toplevel` root, so a test
+    // can pin a drive-rooted Windows root (`C:/repo/root`) and stay deterministic.
+    struct FixedRemoteRoot {
+        url: &'static str,
+        root: &'static str,
+    }
+    impl GitRunner for FixedRemoteRoot {
+        fn run(&self, _: &Path, args: &[&str]) -> GitResult {
+            if args == ["config", "--get", "remote.origin.url"] {
+                GitResult::Ok(self.url.to_string())
+            } else if args == ["rev-parse", "--show-toplevel"] {
+                GitResult::Ok(self.root.to_string())
+            } else {
+                GitResult::Failed { blocked: false }
+            }
+        }
+    }
 
     #[test]
     fn deterministic_24_hex_for_path_basis() {
@@ -679,13 +781,50 @@ mod tests {
         assert_eq!(info.basis.kind, BasisType::Path);
     }
 
-    // HAZARD 1: relative local remote resolved lexically (path.resolve semantics).
-    // `../upstream.git` against root `/repo/root` must collapse `..` -> /repo/upstream.git.
+    // HAZARD 1: relative local remote resolved lexically with the PLATFORM-DEFAULT
+    // `path.resolve` (`path.win32.resolve` on Windows, `path.posix.resolve` on
+    // Unix), matching v1. Each expected string below is the exact output of the
+    // corresponding Node resolver, derived (not hand-guessed) via:
+    //   node -e "const p=require('path'); console.log(p.posix.resolve('/repo/root','../upstream.git'))"
+    //     -> /repo/upstream.git
+    //   node -e "const p=require('path'); console.log(p.win32.resolve('C:/repo/root','../upstream.git'))"
+    //     -> C:\repo\upstream.git
+    #[cfg(unix)]
     #[test]
     fn relative_remote_resolves_lexically() {
+        // FixedRemote pins the toplevel root to `/repo/root`.
         let info = fingerprint_info(Path::new("/x"), &FixedRemote("../upstream.git"));
         assert_eq!(info.basis.kind, BasisType::Remote);
+        // path.posix.resolve('/repo/root','../upstream.git')
         assert_eq!(info.basis.value, "remote:/repo/upstream.git");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn relative_remote_resolves_lexically() {
+        // Drive-rooted Windows toplevel (as `git rev-parse --show-toplevel`
+        // emits on Windows), so the result is deterministic and drive-preserving.
+        let info = fingerprint_info(
+            Path::new("C:/x"),
+            &FixedRemoteRoot {
+                url: "../upstream.git",
+                root: "C:/repo/root",
+            },
+        );
+        assert_eq!(info.basis.kind, BasisType::Remote);
+        // path.win32.resolve('C:/repo/root','../upstream.git')
+        assert_eq!(info.basis.value, r"remote:C:\repo\upstream.git");
+
+        // Nested `../../` case: path.win32.resolve('C:/repo/root','../../x/y.git')
+        //   -> C:\x\y.git
+        let nested = fingerprint_info(
+            Path::new("C:/x"),
+            &FixedRemoteRoot {
+                url: "../../x/y.git",
+                root: "C:/repo/root",
+            },
+        );
+        assert_eq!(nested.basis.value, r"remote:C:\x\y.git");
     }
 
     // HAZARD 2: a canonicalized path basis must have no Windows `\\?\` prefix.

@@ -55,6 +55,9 @@ pub fn ipc_dir() -> PathBuf {
 pub fn logs_dir() -> PathBuf {
     home().join("logs")
 }
+pub fn config_path() -> PathBuf {
+    home().join("config.toml")
+}
 pub fn requests_dir() -> PathBuf {
     ipc_dir().join("requests")
 }
@@ -104,6 +107,7 @@ mod tests {
         std::env::set_var("AI_HANDOFF_HOME", "/tmp/ah-layout");
         assert_eq!(store_dir(), PathBuf::from("/tmp/ah-layout/store"));
         assert_eq!(requests_dir(), PathBuf::from("/tmp/ah-layout/ipc/requests"));
+        assert_eq!(config_path(), PathBuf::from("/tmp/ah-layout/config.toml"));
         assert_eq!(
             capsule_path("projX", "capY"),
             PathBuf::from("/tmp/ah-layout/store/capsules/projX/capY.json")

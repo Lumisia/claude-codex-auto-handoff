@@ -10,3 +10,6 @@ serde_json.workspace = true
 uuid.workspace = true
 thiserror.workspace = true
 ai-handoff-core = { path = "../ai-handoff-core" }
+
+[dev-dependencies]
+tempfile.workspace = true

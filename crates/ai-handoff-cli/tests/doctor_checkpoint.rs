@@ -1,0 +1,64 @@
+use ai_handoff_cli::commands::{checkpoint, doctor};
+use ai_handoff_daemon::router::Router;
+use ai_handoff_ipc::server::serve_once;
+use std::io::Cursor;
+use std::sync::{Mutex, MutexGuard};
+use std::time::{Duration, Instant};
+
+static TEST_LOCK: Mutex<()> = Mutex::new(());
+
+fn lock() -> MutexGuard<'static, ()> {
+    TEST_LOCK
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner())
+}
+
+#[test]
+fn doctor_json_reports_daemon_unreachable_and_exits_zero() {
+    let _guard = lock();
+    let home = tempfile::tempdir().unwrap();
+    std::env::set_var("AI_HANDOFF_HOME", home.path());
+    let mut out = Vec::new();
+    let code = doctor::run_io(true, &mut out);
+    assert_eq!(code, 0);
+    let report: serde_json::Value = serde_json::from_slice(&out).unwrap();
+    assert_eq!(report["daemon"], "unreachable");
+    std::env::remove_var("AI_HANDOFF_HOME");
+}
+
+#[test]
+fn checkpoint_with_daemon_online_writes_capsule() {
+    let _guard = lock();
+    let home = tempfile::tempdir().unwrap();
+    let cwd = tempfile::tempdir().unwrap();
+    let previous_cwd = std::env::current_dir().unwrap();
+    std::env::set_var("AI_HANDOFF_HOME", home.path());
+    std::env::set_current_dir(cwd.path()).unwrap();
+    ai_handoff_daemon::ensure_runtime_dirs().unwrap();
+
+    let worker = std::thread::spawn(|| {
+        let router = Router::new();
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while Instant::now() < deadline {
+            if serve_once(&router) > 0 {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        panic!("daemon did not process checkpoint request");
+    });
+
+    let mut out = Vec::new();
+    let code = checkpoint::run_io(
+        Some("manual checkpoint".into()),
+        &mut Cursor::new(Vec::new()),
+        &mut out,
+    );
+    worker.join().unwrap();
+    assert_eq!(code, 0);
+    let project_id = ai_handoff_core::fingerprint::fingerprint(cwd.path());
+    let pending = ai_handoff_daemon::store::find_pending(&project_id).unwrap();
+    assert_eq!(pending.summary.goal, "manual checkpoint");
+    std::env::set_current_dir(previous_cwd).unwrap();
+    std::env::remove_var("AI_HANDOFF_HOME");
+}

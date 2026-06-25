@@ -13,5 +13,11 @@ serde.workspace = true
 serde_json.workspace = true
 clap.workspace = true
 anyhow.workspace = true
+chrono.workspace = true
+uuid.workspace = true
 ai-handoff-core = { path = "../ai-handoff-core" }
 ai-handoff-ipc = { path = "../ai-handoff-ipc" }
+ai-handoff-daemon = { path = "../ai-handoff-daemon" }
+
+[dev-dependencies]
+tempfile.workspace = true

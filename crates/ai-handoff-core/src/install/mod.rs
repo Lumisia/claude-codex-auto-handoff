@@ -203,6 +203,10 @@ pub fn apply_install(
     };
 
     if let Some((hooks_after, hooks_events, config_edit)) = codex_pending {
+        // Prior install-state, so an idempotent re-install accumulates ownership
+        // instead of overwriting it (see the created_* merge below).
+        let prior = state::load(&t.home);
+
         let hooks_backup = write_with_backup(&t.codex_hooks, &hooks_after, now)?;
         let config_backup = write_with_backup(&t.codex_config, &config_edit.text, now)?;
 
@@ -215,10 +219,17 @@ pub fn apply_install(
             backup: config_backup,
         });
         st.codex.managed_hook_events = hooks_events;
+        // writable_root_added / env_key_added are recorded by presence inside
+        // codex_config::apply, so they survive an idempotent re-install.
         st.codex.writable_root_added = config_edit.writable_root_added;
-        st.codex.created_sandbox_table = config_edit.created_sandbox_table;
         st.codex.env_key_added = config_edit.env_key_added;
-        st.codex.created_env_table = config_edit.created_env_table;
+        // created_* gate whether uninstall drops a now-empty table. A re-install
+        // reports created=false (the table already exists), so OR in any prior
+        // record to avoid losing the "we created it" fact across re-installs.
+        st.codex.created_sandbox_table =
+            config_edit.created_sandbox_table || prior.codex.created_sandbox_table;
+        st.codex.created_env_table =
+            config_edit.created_env_table || prior.codex.created_env_table;
     }
 
     if let Some((settings_after, settings_events)) = claude_pending {
@@ -332,6 +343,58 @@ mod tests {
         )
         .unwrap();
         assert_eq!(cs["model"], "opus");
+    }
+
+    #[test]
+    fn reinstall_then_uninstall_removes_managed_entries() {
+        // Regression: an idempotent SECOND install must not drop ownership of the
+        // writable root / env key (codex_config records them by presence) nor of
+        // the created_* table flags (apply_install ORs in the prior install's
+        // record), or uninstall would orphan our entries in config.toml.
+        let dir = tempfile::tempdir().unwrap();
+        let uh = dir.path();
+        std::fs::create_dir_all(uh.join(".codex")).unwrap();
+        std::fs::create_dir_all(uh.join(".claude")).unwrap();
+        std::fs::copy(
+            concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/tests/fixtures/codex-config-complex.toml"
+            ),
+            uh.join(".codex/config.toml"),
+        )
+        .unwrap();
+        std::fs::write(uh.join(".claude/settings.json"), r#"{"model":"opus"}"#).unwrap();
+        let ai_home = uh.join("ai-home");
+        let t = targets_for(
+            uh,
+            &ai_home,
+            &ai_home.join("ipc"),
+            std::path::Path::new("C:/p/ai-handoff.exe"),
+        );
+        let agents = detect_agents(&t);
+
+        // Install twice; the second run is idempotent over already-applied config.
+        apply_install(&t, &agents, Utc::now()).unwrap();
+        let st = apply_install(&t, &agents, Utc::now()).unwrap();
+
+        // Ownership must survive the idempotent re-install.
+        let ipc = ai_home.join("ipc").to_string_lossy().into_owned();
+        assert_eq!(st.codex.writable_root_added.as_deref(), Some(ipc.as_str()));
+        assert_eq!(st.codex.env_key_added.as_deref(), Some("AI_HANDOFF_HOME"));
+        assert!(st.codex.created_sandbox_table);
+        assert!(st.codex.created_env_table);
+
+        apply_uninstall(&t, &st).unwrap();
+        let final_cfg = std::fs::read_to_string(uh.join(".codex/config.toml")).unwrap();
+        // "ai-home" appears only in our ipc root + AI_HANDOFF_HOME value; both gone.
+        assert!(
+            !final_cfg.contains("ai-home"),
+            "managed entries orphaned after reinstall+uninstall:\n{final_cfg}"
+        );
+        assert!(!final_cfg.contains("AI_HANDOFF_HOME"));
+        // empty tables we created are dropped
+        assert!(!final_cfg.contains("sandbox_workspace_write"));
+        assert!(!final_cfg.contains("shell_environment_policy"));
     }
 
     #[test]

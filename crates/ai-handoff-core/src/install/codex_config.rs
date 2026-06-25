@@ -81,13 +81,15 @@ pub fn apply(
             "writable_roots is not an array",
         ))?;
 
-    let already_present = roots.iter().any(|v| v.as_str() == Some(ipc_dir));
-    let writable_root_added = if already_present {
-        None
-    } else {
+    if !roots.iter().any(|v| v.as_str() == Some(ipc_dir)) {
         roots.push(ipc_dir);
-        Some(ipc_dir.to_string())
-    };
+    }
+    // Our IPC dir lives under our own AI home, so its presence is unambiguous
+    // ownership. Record it as managed whenever it is present after this apply
+    // (not only when THIS call pushed it) — otherwise an idempotent re-install
+    // would report `None`, overwrite the install-state, and leave uninstall
+    // unable to remove the root an earlier install added.
+    let writable_root_added = Some(ipc_dir.to_string());
 
     // --- [shell_environment_policy].set.AI_HANDOFF_HOME ---
     let created_env_table = !doc.contains_key("shell_environment_policy");
@@ -108,11 +110,17 @@ pub fn apply(
             "shell_environment_policy.set is not a table",
         ))?;
 
-    let env_key_added = if set.contains_key(ENV_KEY) {
-        None
-    } else {
+    if !set.contains_key(ENV_KEY) {
         set.insert(ENV_KEY, value(ai_home));
+    }
+    // Claim ownership of the env key only when its value is the home we manage,
+    // so we never remove a same-named key the user set to a different value.
+    // Recorded by presence (not only when THIS call inserted it) so an
+    // idempotent re-install keeps ownership for a later uninstall.
+    let env_key_added = if set.get(ENV_KEY).and_then(|v| v.as_str()) == Some(ai_home) {
         Some(ENV_KEY.to_string())
+    } else {
+        None
     };
 
     Ok(ConfigEdit {
@@ -255,8 +263,26 @@ mod tests {
             1
         );
         assert!(!e2.created_sandbox_table); // already existed the second time
-        assert!(e2.writable_root_added.is_none());
-        assert!(e2.env_key_added.is_none());
+        // Managed entries are recorded by presence, so a re-apply still reports
+        // them (they are not duplicated — the array length stays 1 above) — this
+        // is what lets a later uninstall remove them after an idempotent install.
+        assert_eq!(e2.writable_root_added.as_deref(), Some("C:/ipc"));
+        assert_eq!(e2.env_key_added.as_deref(), Some("AI_HANDOFF_HOME"));
+    }
+
+    #[test]
+    fn apply_does_not_claim_user_env_key_with_different_value() {
+        // User already set AI_HANDOFF_HOME to their own value before install.
+        let src = "[shell_environment_policy.set]\nAI_HANDOFF_HOME = \"D:\\\\theirs\"\n";
+        let e = apply(Some(src), "C:/ipc", "C:/home").unwrap();
+        // We must not claim ownership (uninstall would wrongly remove their key).
+        assert!(e.env_key_added.is_none());
+        // And we must not have overwritten their value.
+        let doc: toml_edit::DocumentMut = e.text.parse().unwrap();
+        assert_eq!(
+            doc["shell_environment_policy"]["set"]["AI_HANDOFF_HOME"].as_str(),
+            Some("D:\\theirs")
+        );
     }
 
     #[test]

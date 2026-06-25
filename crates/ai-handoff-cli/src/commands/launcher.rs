@@ -73,7 +73,10 @@ fn ensure_user_path_contains(bin: &Path) -> anyhow::Result<Option<String>> {
     if added.is_some() {
         write_user_path(&next)?;
     }
-    Ok(added)
+    // Our bin dir lives under the AI home, so its presence on PATH is our entry.
+    // Record it whenever it ends up present (added now or already there) so an
+    // idempotent re-install keeps ownership for uninstall to remove.
+    Ok(Some(bin.to_string_lossy().into_owned()))
 }
 
 #[cfg(not(windows))]

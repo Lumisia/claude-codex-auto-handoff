@@ -19,13 +19,16 @@ pub fn managed_command(exe: &str, event_arg: &str) -> String {
 ///    with `_aiHandoff == true` (those are "foreign" entries we preserve).
 /// 3. Appends exactly one new outer entry containing our managed inner hook.
 ///
-/// Returns `(pretty_json, managed_event_names)`.
-pub fn apply(existing: Option<&str>, exe: &str) -> (String, Vec<String>) {
+/// Returns `Ok((pretty_json, managed_event_names))`, or a parse error when
+/// `existing` contains invalid JSON (caller should abort; the backup is the
+/// recovery path — never silently clobber).
+pub fn apply(existing: Option<&str>, exe: &str) -> serde_json::Result<(String, Vec<String>)> {
     use serde_json::{json, Value};
 
-    let mut root: Value = existing
-        .and_then(|s| serde_json::from_str(s).ok())
-        .unwrap_or_else(|| json!({"hooks": {}}));
+    let mut root: Value = match existing {
+        Some(s) => serde_json::from_str::<Value>(s)?,
+        None => json!({"hooks": {}}),
+    };
 
     // Ensure `hooks` key is an object.
     if !root["hooks"].is_object() {
@@ -81,17 +84,19 @@ pub fn apply(existing: Option<&str>, exe: &str) -> (String, Vec<String>) {
     }
 
     let pretty = serde_json::to_string_pretty(&root).expect("serialization cannot fail");
-    (pretty, managed_events)
+    Ok((pretty, managed_events))
 }
 
 /// Remove every outer hook entry whose inner `hooks[]` array contains an entry
 /// with `_aiHandoff == true`.  Prune event arrays that become empty after removal.
 /// Foreign entries are preserved unchanged.
-pub fn remove(existing: &str) -> String {
+///
+/// Returns `Ok(pretty_json)`, or a parse error when `existing` contains invalid
+/// JSON (caller should abort rather than overwriting).
+pub fn remove(existing: &str) -> serde_json::Result<String> {
     use serde_json::Value;
 
-    let mut root: Value =
-        serde_json::from_str(existing).expect("remove() called with invalid JSON");
+    let mut root: Value = serde_json::from_str(existing)?;
 
     if let Some(hooks_obj) = root["hooks"].as_object_mut() {
         let mut empty_events: Vec<String> = Vec::new();
@@ -120,7 +125,7 @@ pub fn remove(existing: &str) -> String {
         }
     }
 
-    serde_json::to_string_pretty(&root).expect("serialization cannot fail")
+    Ok(serde_json::to_string_pretty(&root).expect("serialization cannot fail"))
 }
 
 #[cfg(test)]
@@ -131,14 +136,14 @@ mod tests {
     #[test]
     fn apply_inserts_four_managed_hooks_idempotently() {
         let exe = "C:\\p\\ai-handoff.exe";
-        let (first, events) = apply(None, exe);
+        let (first, events) = apply(None, exe).unwrap();
         assert_eq!(events.len(), 4);
         let v: Value = serde_json::from_str(&first).unwrap();
         assert!(v["hooks"]["Stop"][0]["hooks"][0]["_aiHandoff"]
             .as_bool()
             .unwrap());
         // idempotent: re-apply over our own output keeps exactly one managed entry per event
-        let (second, _) = apply(Some(&first), exe);
+        let (second, _) = apply(Some(&first), exe).unwrap();
         let v2: Value = serde_json::from_str(&second).unwrap();
         assert_eq!(v2["hooks"]["Stop"].as_array().unwrap().len(), 1);
     }
@@ -146,13 +151,20 @@ mod tests {
     #[test]
     fn apply_preserves_foreign_hooks_and_remove_strips_only_ours() {
         let foreign = r#"{"hooks":{"Stop":[{"matcher":"*","hooks":[{"type":"command","command":"other"}]}]}}"#;
-        let (merged, _) = apply(Some(foreign), "C:\\p\\ai-handoff.exe");
+        let (merged, _) = apply(Some(foreign), "C:\\p\\ai-handoff.exe").unwrap();
         let v: Value = serde_json::from_str(&merged).unwrap();
         assert_eq!(v["hooks"]["Stop"].as_array().unwrap().len(), 2); // foreign + ours
-        let cleaned = remove(&merged);
+        let cleaned = remove(&merged).unwrap();
         let c: Value = serde_json::from_str(&cleaned).unwrap();
         let stop = c["hooks"]["Stop"].as_array().unwrap();
         assert_eq!(stop.len(), 1);
         assert_eq!(stop[0]["hooks"][0]["command"], "other");
+    }
+
+    #[test]
+    fn apply_and_remove_return_err_on_invalid_json() {
+        let exe = "C:\\p\\ai-handoff.exe";
+        assert!(apply(Some("not valid json"), exe).is_err());
+        assert!(remove("not valid json").is_err());
     }
 }

@@ -1,4 +1,9 @@
+pub mod autostart;
 pub mod checkpoint;
 pub mod daemon;
+pub mod dashboard;
 pub mod doctor;
 pub mod hook;
+pub mod install;
+pub mod launcher;
+pub mod uninstall;

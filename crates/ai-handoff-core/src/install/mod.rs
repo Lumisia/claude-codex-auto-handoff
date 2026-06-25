@@ -1,4 +1,5 @@
 pub mod backup;
+pub mod claude;
 pub mod codex_config;
 pub mod codex_hooks;
 pub mod detect;

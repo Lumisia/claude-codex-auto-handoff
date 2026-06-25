@@ -11,7 +11,7 @@ use ai_handoff_core::{
     hook_event::{normalize, HookEventKind},
     redaction::redact,
     sensor::used_percent_from_jsonl,
-    trigger::{evaluate_trigger, BurnRate, TriggerMode},
+    trigger::{evaluate_trigger, TriggerMode},
 };
 use ai_handoff_ipc::{
     protocol::{degraded, Response, Status, VERSION},
@@ -117,16 +117,20 @@ impl Handler for Router {
                     .transcript_path
                     .as_deref()
                     .and_then(used_percent_from_jsonl);
+                let cfg = ai_handoff_core::config::load();
+                let resolved = ai_handoff_core::config::resolve(&cfg, &project_id);
+                let mode = if resolved.enabled {
+                    resolved.mode
+                } else {
+                    TriggerMode::Off
+                };
                 let outcome = evaluate_trigger(
                     used,
-                    80.0,
-                    TriggerMode::Ask,
-                    false,
-                    &[],
-                    &BurnRate {
-                        enabled: false,
-                        runway_minutes: 30.0,
-                    },
+                    resolved.threshold,
+                    mode,
+                    false, // trigger dedupe: SP4d
+                    &[],   // burn-rate samples: SP4d
+                    &resolved.burn,
                 );
                 Self::ok(
                     req,

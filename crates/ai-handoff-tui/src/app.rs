@@ -66,6 +66,10 @@ fn dim_name(dim: Dimension) -> &'static str {
     }
 }
 
+const DEFAULT_HINT: &str =
+    "q/Esc back · Tab/1-3 switch · g cycle breakdown · ↑/↓ + space/←/→ edit settings";
+const QUIT_HINT: &str = "한 번 더 q/Esc 누르면 완전히 종료됩니다 (press q/Esc again to quit)";
+
 pub struct App {
     pub tab: Tab,
     snapshot: DashboardSnapshot,
@@ -76,6 +80,8 @@ pub struct App {
     config_path: PathBuf,
     status: String,
     should_quit: bool,
+    /// Armed on the Overview tab by a first q/Esc; a second one then quits.
+    confirm_quit: bool,
 }
 
 impl App {
@@ -102,8 +108,9 @@ impl App {
             settings,
             settings_idx: 0,
             config_path,
-            status: "q quit · Tab switch · g cycle breakdown · ←/→/space edit settings".to_string(),
+            status: DEFAULT_HINT.to_string(),
             should_quit: false,
+            confirm_quit: false,
         }
     }
 
@@ -128,8 +135,18 @@ impl App {
 
     /// Handle one keypress. Pure except for a config file write on Settings edit.
     pub fn on_key(&mut self, key: KeyEvent) {
+        // q/Esc backs out one level (sub-tab -> Overview), then needs a second
+        // press on Overview to actually quit.
+        if matches!(key.code, KeyCode::Char('q') | KeyCode::Esc) {
+            self.on_back();
+            return;
+        }
+        // Any other key disarms a pending quit confirmation.
+        if self.confirm_quit {
+            self.confirm_quit = false;
+            self.status = DEFAULT_HINT.to_string();
+        }
         match key.code {
-            KeyCode::Char('q') | KeyCode::Esc => self.should_quit = true,
             KeyCode::Tab | KeyCode::Right if self.tab != Tab::Settings => {
                 self.tab = self.tab.next();
             }
@@ -144,6 +161,20 @@ impl App {
                 Tab::Settings => self.on_settings_key(key),
                 Tab::Overview => {}
             },
+        }
+    }
+
+    /// q/Esc: from a sub-tab return to Overview; on Overview arm-then-quit.
+    fn on_back(&mut self) {
+        if self.tab != Tab::Overview {
+            self.tab = Tab::Overview;
+            self.confirm_quit = false;
+            self.status = DEFAULT_HINT.to_string();
+        } else if self.confirm_quit {
+            self.should_quit = true;
+        } else {
+            self.confirm_quit = true;
+            self.status = QUIT_HINT.to_string();
         }
     }
 
@@ -376,10 +407,54 @@ mod tests {
     }
 
     #[test]
-    fn q_quits() {
+    fn q_on_subtab_returns_to_overview_without_quitting() {
         let mut app = test_app();
+        app.tab = Tab::Settings;
         app.on_key(key(KeyCode::Char('q')));
+        assert_eq!(app.tab, Tab::Overview);
+        assert!(!app.should_quit());
+
+        app.tab = Tab::Usage;
+        app.on_key(key(KeyCode::Esc));
+        assert_eq!(app.tab, Tab::Overview);
+        assert!(!app.should_quit());
+    }
+
+    #[test]
+    fn q_on_overview_arms_then_quits() {
+        let mut app = test_app();
+        assert_eq!(app.tab, Tab::Overview);
+        app.on_key(key(KeyCode::Char('q')));
+        assert!(!app.should_quit(), "first q must only arm");
+        assert!(app.confirm_quit);
+        assert!(app.status.contains("종료"));
+        app.on_key(key(KeyCode::Char('q')));
+        assert!(app.should_quit(), "second q quits");
+    }
+
+    #[test]
+    fn esc_behaves_like_q_on_overview() {
+        let mut app = test_app();
+        app.on_key(key(KeyCode::Esc));
+        assert!(!app.should_quit());
+        app.on_key(key(KeyCode::Esc));
         assert!(app.should_quit());
+    }
+
+    #[test]
+    fn other_key_disarms_quit_confirmation() {
+        let mut app = test_app();
+        app.on_key(key(KeyCode::Char('q'))); // arm on Overview
+        assert!(app.confirm_quit);
+        app.on_key(key(KeyCode::Tab)); // any other key disarms
+        assert!(!app.confirm_quit);
+        assert_eq!(app.tab, Tab::Usage);
+        // back to Overview and a single q only re-arms, does not quit
+        app.on_key(key(KeyCode::Char('q'))); // Usage -> Overview
+        assert_eq!(app.tab, Tab::Overview);
+        app.on_key(key(KeyCode::Char('q'))); // arm
+        assert!(!app.should_quit());
+        assert!(app.confirm_quit);
     }
 
     #[test]

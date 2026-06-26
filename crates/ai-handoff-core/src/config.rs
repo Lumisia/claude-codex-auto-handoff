@@ -259,6 +259,29 @@ pub fn settable_keys() -> impl Iterator<Item = &'static str> {
     SETTABLE.iter().map(|(k, _)| *k)
 }
 
+/// The public value-kind of an editable key, for UIs that edit config (e.g. the
+/// TUI Settings tab): bool toggles, mode cycles, numbers step.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KeyKind {
+    Bool,
+    /// Float in `0..=100`.
+    Percent,
+    /// Strictly-positive float.
+    PosFloat,
+    /// `off` / `ask` / `auto`.
+    Mode,
+}
+
+/// The kind of an editable key, or `None` if `key` is not editable.
+pub fn key_kind(key: &str) -> Option<KeyKind> {
+    SETTABLE.iter().find(|(k, _)| *k == key).map(|(_, v)| match v {
+        ValueKind::Bool => KeyKind::Bool,
+        ValueKind::Percent => KeyKind::Percent,
+        ValueKind::PosFloat => KeyKind::PosFloat,
+        ValueKind::Mode => KeyKind::Mode,
+    })
+}
+
 impl ValueKind {
     /// Validate `raw` for this kind and convert it to a TOML item.
     fn to_item(self, key: &str, raw: &str) -> Result<Item, ConfigWriteError> {
@@ -645,6 +668,22 @@ enabled = true
             get_value(&Config::default(), "bogus.key").unwrap_err(),
             ConfigWriteError::UnknownKey(_)
         ));
+    }
+
+    #[test]
+    fn key_kind_maps_each_settable_key() {
+        assert_eq!(key_kind("autostart.enabled"), Some(KeyKind::Bool));
+        assert_eq!(key_kind("triggers.five_hour.mode"), Some(KeyKind::Mode));
+        assert_eq!(key_kind("triggers.five_hour.threshold_percent"), Some(KeyKind::Percent));
+        assert_eq!(
+            key_kind("triggers.five_hour.burn_rate.runway_minutes"),
+            Some(KeyKind::PosFloat)
+        );
+        assert_eq!(key_kind("nope"), None);
+        // every advertised key has a kind
+        for k in settable_keys() {
+            assert!(key_kind(k).is_some(), "no kind for {k}");
+        }
     }
 
     #[test]

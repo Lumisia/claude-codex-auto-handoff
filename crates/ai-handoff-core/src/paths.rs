@@ -88,6 +88,7 @@ mod tests {
     // we merge them sequentially here — all assertions are preserved verbatim.
     #[test]
     fn home_and_layout_paths() {
+        let _guard = crate::test_support::env_lock();
         // --- home_prefers_env_then_os_default ---
         std::env::set_var("AI_HANDOFF_HOME", "/tmp/ah-test-home");
         assert_eq!(home(), PathBuf::from("/tmp/ah-test-home"));

@@ -258,6 +258,7 @@ mod tests {
 
     #[test]
     fn claude_sensor_all_cases() {
+        let _guard = crate::test_support::env_lock();
         let home = tempfile::tempdir().unwrap();
         std::env::set_var("AI_HANDOFF_HOME", home.path());
 

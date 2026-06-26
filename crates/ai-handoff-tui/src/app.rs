@@ -78,7 +78,8 @@ fn dim_name(dim: Dimension) -> &'static str {
 
 const DEFAULT_HINT: &str =
     "q/Esc back · Tab/1-4 or ←/→ switch tab · ↓/Space/Enter open tab";
-const QUIT_HINT: &str = "한 번 더 q/Esc 누르면 완전히 종료됩니다 (press q/Esc again to quit)";
+const QUIT_HINT: &str =
+    "종료하시겠습니까? 한 번 더 q/Esc 누르면 종료됩니다 (press q/Esc again to quit)";
 
 /// Claude = orange, Codex = purple (the token-split donut + legend).
 const CLAUDE_COLOR: Color = Color::Rgb(230, 140, 30);
@@ -134,23 +135,30 @@ pub struct App {
     cap_expanded_agents: HashSet<usize>,
     cap_expanded_projects: HashSet<(usize, usize)>,
     cap_sel: usize,
-    /// Whether focus is on the tree, the detail pane, or the goal editor.
+    /// Whether focus is on the tree, the detail pane, or the field editor.
     cap_focus: CapFocus,
-    /// Vertical scroll offset of the detail body.
-    cap_scroll: u16,
+    /// Which editable field is selected in the detail pane (index into CAP_FIELDS).
+    cap_field: usize,
     /// A delete needs a second confirm press; armed here.
     cap_confirm_delete: bool,
-    /// The working buffer while editing a capsule's goal.
+    /// The working buffer while editing a capsule field.
     cap_edit_buf: String,
     /// Cached parsed/raw detail of the currently-selected capsule.
     cap_detail: Option<CapDetail>,
     status: String,
     should_quit: bool,
-    /// Armed at the root (empty history) by a first q/Esc; a second one quits.
+    /// Armed on a top tab by a first q/Esc; a second one quits.
     confirm_quit: bool,
-    /// Tab visit history; q/Esc pops it ("back") before arming a quit.
-    nav_stack: Vec<Tab>,
 }
+
+/// The capsule fields the detail pane lets you edit, in display order.
+const CAP_FIELDS: [capsule_ops::CapField; 5] = [
+    capsule_ops::CapField::Goal,
+    capsule_ops::CapField::NextPrompt,
+    capsule_ops::CapField::Remaining,
+    capsule_ops::CapField::Done,
+    capsule_ops::CapField::Risks,
+];
 
 impl App {
     /// Build the app by scanning the live system (logs, config, health).
@@ -185,14 +193,13 @@ impl App {
             cap_expanded_projects: HashSet::new(),
             cap_sel: 0,
             cap_focus: CapFocus::Tree,
-            cap_scroll: 0,
+            cap_field: 0,
             cap_confirm_delete: false,
             cap_edit_buf: String::new(),
             cap_detail: None,
             status: DEFAULT_HINT.to_string(),
             should_quit: false,
             confirm_quit: false,
-            nav_stack: Vec::new(),
         }
     }
 
@@ -264,13 +271,9 @@ impl App {
         }
     }
 
-    /// Switch tabs, recording where we came from so q/Esc can step back. Always
-    /// lands on the tab bar (content focus is dropped).
+    /// Switch tabs. Always lands on the tab bar (content focus is dropped).
     fn goto(&mut self, target: Tab) {
-        if target != self.tab {
-            self.nav_stack.push(self.tab);
-            self.tab = target;
-        }
+        self.tab = target;
         self.focus_content = false;
         self.confirm_quit = false;
         self.status = DEFAULT_HINT.to_string();
@@ -294,8 +297,8 @@ impl App {
         };
     }
 
-    /// q/Esc: leave content focus first, then step back through visited tabs;
-    /// at the root (empty history) arm a quit, and quit on the second press.
+    /// q/Esc: inside a tab's content, just leave it (back to the tab bar). On a
+    /// top tab, arm a quit confirmation; a second q/Esc actually quits.
     fn on_back(&mut self) {
         if self.focus_content {
             self.focus_content = false;
@@ -303,11 +306,7 @@ impl App {
             self.status = DEFAULT_HINT.to_string();
             return;
         }
-        if let Some(prev) = self.nav_stack.pop() {
-            self.tab = prev;
-            self.confirm_quit = false;
-            self.status = DEFAULT_HINT.to_string();
-        } else if self.confirm_quit {
+        if self.confirm_quit {
             self.should_quit = true;
         } else {
             self.confirm_quit = true;
@@ -425,11 +424,11 @@ impl App {
     /// Cross from the tree into the detail pane for the selected capsule.
     fn cap_enter_detail(&mut self) {
         self.cap_focus = CapFocus::Detail;
-        self.cap_scroll = 0;
+        self.cap_field = 0;
         self.cap_confirm_delete = false;
         self.cap_load_content();
         self.status =
-            "s toggle state · d delete · e/Enter edit goal · ↑/↓ scroll · ← back to list"
+            "↑/↓ pick field · Enter/e edit · s toggle state · d delete · ← back to list"
                 .to_string();
     }
 
@@ -443,8 +442,16 @@ impl App {
         }
         match key.code {
             KeyCode::Left => self.cap_focus_tree(),
-            KeyCode::Up | KeyCode::Char('k') => self.cap_scroll = self.cap_scroll.saturating_sub(1),
-            KeyCode::Down | KeyCode::Char('j') => self.cap_scroll = self.cap_scroll.saturating_add(1),
+            KeyCode::Up | KeyCode::Char('k') => {
+                if self.cap_field > 0 {
+                    self.cap_field -= 1;
+                }
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                if self.cap_field + 1 < CAP_FIELDS.len() {
+                    self.cap_field += 1;
+                }
+            }
             KeyCode::Char('s') => self.cap_toggle_state(),
             KeyCode::Char('d') | KeyCode::Char('y') if confirming => self.cap_delete(),
             KeyCode::Char('d') => {
@@ -465,7 +472,7 @@ impl App {
             "↑/↓ move · Enter/→ expand or open capsule · ← collapse · q/Esc back".to_string();
     }
 
-    /// Keys while editing the selected capsule's goal.
+    /// Keys while editing the selected capsule field.
     fn cap_editing_key(&mut self, key: KeyEvent) {
         match key.code {
             KeyCode::Enter => self.cap_commit_edit(),
@@ -507,37 +514,47 @@ impl App {
         }
     }
 
-    /// Begin editing the selected capsule's goal (loads the current goal).
+    /// Begin editing the selected field (loads its current text into the buffer).
     fn cap_begin_edit(&mut self) {
-        let goal = self
+        let field = CAP_FIELDS[self.cap_field];
+        let current = self
             .cap_detail
             .as_ref()
             .and_then(|d| d.parsed.as_ref())
-            .map(|c| c.summary.goal.clone());
-        match goal {
-            Some(goal) => {
-                self.cap_edit_buf = goal;
+            .map(|c| capsule_ops::field_text(c, field));
+        match current {
+            Some(text) => {
+                self.cap_edit_buf = text;
                 self.cap_focus = CapFocus::Editing;
-                self.status = "editing goal — Enter save · Esc cancel".to_string();
+                let how = if field.is_list() {
+                    " (여러 항목은 | 로 구분)"
+                } else {
+                    ""
+                };
+                self.status = format!("editing {}{how} — Enter save · Esc cancel", field.label());
             }
             None => self.status = "this capsule cannot be edited (not a valid capsule)".to_string(),
         }
     }
 
-    /// Save the edited goal to disk and the in-memory tree.
+    /// Save the edited field to disk and refresh the in-memory tree.
     fn cap_commit_edit(&mut self) {
         let Some((ai, pi, ci)) = self.selected_capsule() else {
             self.cap_focus = CapFocus::Detail;
             return;
         };
+        let field = CAP_FIELDS[self.cap_field];
         let path = self.cap_tree[ai].projects[pi].capsules[ci].path.clone();
-        let goal = self.cap_edit_buf.clone();
-        match capsule_ops::set_goal(Path::new(&path), &goal) {
+        let text = self.cap_edit_buf.clone();
+        match capsule_ops::set_field(Path::new(&path), field, &text) {
             Ok(()) => {
-                self.cap_tree[ai].projects[pi].capsules[ci].summary_preview = goal;
+                // Keep the tree's preview (the goal) in sync when it changes.
+                if field == capsule_ops::CapField::Goal {
+                    self.cap_tree[ai].projects[pi].capsules[ci].summary_preview = text;
+                }
                 self.cap_detail = None;
                 self.cap_load_content();
-                self.status = "goal saved".to_string();
+                self.status = format!("{} saved", field.label());
             }
             Err(e) => self.status = format!("save failed: {e}"),
         }
@@ -588,7 +605,7 @@ impl App {
                 .map(|d| d.path == path)
                 .unwrap_or(false);
             if !already {
-                self.cap_scroll = 0;
+                self.cap_field = 0;
                 let res = ai_handoff_core::dashboard::read_capsule(Path::new(&path), 64 * 1024);
                 let raw = match res.error {
                     Some(e) => format!("(could not read {path}: {e})"),
@@ -787,17 +804,26 @@ impl App {
             spans.push(Span::styled(" [d] delete ", action_style(focused)));
         }
         spans.push(Span::raw("  "));
-        spans.push(Span::styled(" [e/Enter] edit goal ", action_style(focused)));
+        spans.push(Span::styled(" [e/Enter] edit field ", action_style(focused)));
         let bar = Paragraph::new(Line::from(spans))
             .block(focus_block("Actions", focused && self.cap_focus == CapFocus::Detail));
         f.render_widget(bar, area);
     }
 
-    /// The capsule body: a readable view (or the goal editor when editing).
+    /// The capsule body: the editable fields (selectable) + read-only context,
+    /// or the field editor when editing.
     fn draw_capsule_body(&self, f: &mut Frame, area: Rect, focused: bool) {
+        let detail_active = focused && self.cap_focus == CapFocus::Detail;
+
         if self.cap_focus == CapFocus::Editing {
+            let field = CAP_FIELDS[self.cap_field];
+            let hint = if field.is_list() {
+                "여러 항목은 | 로 구분 · Enter 저장 · Esc 취소"
+            } else {
+                "Enter 저장 · Esc 취소"
+            };
             let lines = vec![
-                Line::from("Editing goal (Enter to save · Esc to cancel):").italic(),
+                Line::from(format!("Editing {} — {hint}", field.label())).italic(),
                 Line::from(""),
                 Line::from(vec![
                     Span::raw(self.cap_edit_buf.clone()),
@@ -806,7 +832,7 @@ impl App {
             ];
             let editor = Paragraph::new(lines)
                 .wrap(Wrap { trim: false })
-                .block(focus_block("Edit goal", true));
+                .block(focus_block("Edit field", true));
             f.render_widget(editor, area);
             return;
         }
@@ -814,7 +840,7 @@ impl App {
         let (title, lines) = match self.cap_detail.as_ref() {
             Some(detail) => (
                 format!("Capsule — {}", detail.path),
-                capsule_body_lines(detail),
+                self.capsule_body_lines(detail),
             ),
             None => (
                 "Capsule detail".to_string(),
@@ -825,12 +851,60 @@ impl App {
         };
         let body = Paragraph::new(lines)
             .wrap(Wrap { trim: false })
-            .scroll((self.cap_scroll, 0))
-            .block(focus_block(
-                &title,
-                focused && self.cap_focus == CapFocus::Detail,
-            ));
+            .block(focus_block(&title, detail_active));
         f.render_widget(body, area);
+    }
+
+    /// Lines for the capsule body: editable fields (the selected one highlighted
+    /// when the detail pane is active) followed by read-only context.
+    fn capsule_body_lines(&self, detail: &CapDetail) -> Vec<Line<'static>> {
+        let Some(c) = detail.parsed.as_ref() else {
+            return detail.raw.lines().map(|l| Line::from(l.to_string())).collect();
+        };
+        let detail_active = self.focus_content && self.cap_focus == CapFocus::Detail;
+        let mut lines = vec![Line::from(
+            Span::styled("Editable (Enter/e):", Style::default().add_modifier(Modifier::BOLD)),
+        )];
+        for (i, field) in CAP_FIELDS.iter().enumerate() {
+            let val = capsule_ops::field_text(c, *field);
+            let shown = if val.is_empty() { "(empty)".to_string() } else { val };
+            let text = format!("  {:<12} {shown}", format!("{}:", field.label()));
+            let style = if i == self.cap_field && detail_active {
+                Style::default().fg(Color::Black).bg(Color::Cyan)
+            } else if i == self.cap_field {
+                Style::default().add_modifier(Modifier::REVERSED)
+            } else {
+                Style::default()
+            };
+            lines.push(Line::from(Span::styled(text, style)));
+        }
+
+        let state = match c.consumption.state {
+            ai_handoff_core::capsule::ConsumptionState::Pending => "pending",
+            ai_handoff_core::capsule::ConsumptionState::Consumed => "consumed",
+        };
+        lines.push(Line::from(""));
+        lines.push(Line::from(
+            Span::styled("Read-only:", Style::default().fg(Color::DarkGray)),
+        ));
+        lines.push(Line::from(format!(
+            "  Flow:    {:?} → {:?}",
+            c.source_agent, c.target_agent
+        )));
+        lines.push(Line::from(format!("  State:   {state}")));
+        lines.push(Line::from(format!("  Created: {}", c.created_at)));
+        lines.push(Line::from(format!("  Capsule: {}", c.capsule_id)));
+        if !c.files.is_empty() {
+            lines.push(Line::from(""));
+            lines.push(Line::from(
+                Span::styled("  Files:", Style::default().add_modifier(Modifier::BOLD)),
+            ));
+            for fch in &c.files {
+                let status = fch.status.clone().unwrap_or_default();
+                lines.push(Line::from(format!("    {status} {}", fch.path)));
+            }
+        }
+        lines
     }
 
     /// Claude/Codex token totals from the per-source aggregation.
@@ -1105,68 +1179,6 @@ fn action_style(focused: bool) -> Style {
     }
 }
 
-/// Render the selected capsule as readable lines (or its raw text when it does
-/// not parse as a v2 capsule).
-fn capsule_body_lines(detail: &CapDetail) -> Vec<Line<'static>> {
-    let Some(c) = detail.parsed.as_ref() else {
-        return detail.raw.lines().map(|l| Line::from(l.to_string())).collect();
-    };
-    let head = |k: &str, v: String| {
-        Line::from(vec![
-            Span::styled(
-                format!("{k}: "),
-                Style::default().add_modifier(Modifier::BOLD),
-            ),
-            Span::raw(v),
-        ])
-    };
-    let state = match c.consumption.state {
-        ai_handoff_core::capsule::ConsumptionState::Pending => "pending",
-        ai_handoff_core::capsule::ConsumptionState::Consumed => "consumed",
-    };
-    let mut lines = vec![
-        head("Goal", c.summary.goal.clone()),
-        head("Flow", format!("{:?} → {:?}", c.source_agent, c.target_agent)),
-        head("State", state.to_string()),
-        head("Created", c.created_at.clone()),
-        head("Capsule", c.capsule_id.clone()),
-        Line::from(""),
-    ];
-    push_list(&mut lines, "Done", &c.summary.done);
-    push_list(&mut lines, "Remaining", &c.summary.remaining);
-    push_list(&mut lines, "Risks", &c.summary.risks);
-    if let Some(np) = &c.next_prompt {
-        lines.push(Line::from(""));
-        lines.push(Line::from(
-            Span::styled("Next prompt:", Style::default().add_modifier(Modifier::BOLD)),
-        ));
-        lines.extend(np.lines().map(|l| Line::from(l.to_string())));
-    }
-    if !c.files.is_empty() {
-        lines.push(Line::from(""));
-        lines.push(Line::from(
-            Span::styled("Files:", Style::default().add_modifier(Modifier::BOLD)),
-        ));
-        for fch in &c.files {
-            let status = fch.status.clone().unwrap_or_default();
-            lines.push(Line::from(format!("  {status} {}", fch.path)));
-        }
-    }
-    lines
-}
-
-/// Append a bold-labelled bullet list (skipped when empty).
-fn push_list(lines: &mut Vec<Line<'static>>, label: &str, items: &[String]) {
-    if items.is_empty() {
-        return;
-    }
-    lines.push(Line::from(Span::styled(
-        format!("{label}:"),
-        Style::default().add_modifier(Modifier::BOLD),
-    )));
-    lines.extend(items.iter().map(|it| Line::from(format!("  - {it}"))));
-}
-
 /// Basename of a project id/path, truncated to fit the tree column.
 fn project_label(id: &str) -> String {
     let base = id
@@ -1266,18 +1278,36 @@ mod tests {
     }
 
     #[test]
-    fn q_steps_back_through_visited_tabs_not_straight_to_overview() {
+    fn top_tab_q_arms_quit_not_back() {
         let mut app = test_app();
         app.on_key(key(KeyCode::Char('2'))); // Overview -> Capsule
         app.on_key(key(KeyCode::Char('4'))); // Capsule -> Settings
         assert_eq!(app.tab, Tab::Settings);
 
-        app.on_key(key(KeyCode::Char('q'))); // back to where we were: Capsule
-        assert_eq!(app.tab, Tab::Capsule);
+        // On a top tab, q does NOT go back to a previous tab — it arms a quit.
+        app.on_key(key(KeyCode::Char('q')));
+        assert_eq!(app.tab, Tab::Settings, "must stay, not step back");
+        assert!(app.confirm_quit);
         assert!(!app.should_quit());
 
-        app.on_key(key(KeyCode::Esc)); // back again: Overview
-        assert_eq!(app.tab, Tab::Overview);
+        app.on_key(key(KeyCode::Char('q'))); // second q quits
+        assert!(app.should_quit());
+    }
+
+    #[test]
+    fn q_in_content_returns_to_tab_bar_then_arms_quit() {
+        let mut app = test_app();
+        app.on_key(key(KeyCode::Char('4'))); // Settings tab bar
+        app.on_key(key(KeyCode::Down)); // descend into content
+        assert!(app.focus_content);
+
+        app.on_key(key(KeyCode::Char('q'))); // leave content -> tab bar (not quit)
+        assert!(!app.focus_content);
+        assert!(!app.confirm_quit);
+        assert_eq!(app.tab, Tab::Settings);
+
+        app.on_key(key(KeyCode::Char('q'))); // now on the tab bar -> arm quit
+        assert!(app.confirm_quit);
         assert!(!app.should_quit());
     }
 
@@ -1305,19 +1335,16 @@ mod tests {
     #[test]
     fn other_key_disarms_quit_confirmation() {
         let mut app = test_app();
-        app.on_key(key(KeyCode::Char('q'))); // arm on Overview (empty history)
+        app.on_key(key(KeyCode::Char('q'))); // arm on Overview
         assert!(app.confirm_quit);
         app.on_key(key(KeyCode::Tab)); // any other key disarms + navigates
         assert!(!app.confirm_quit);
         assert_eq!(app.tab, Tab::Capsule);
-        // q steps back to Overview (history pop), not a quit
-        app.on_key(key(KeyCode::Char('q')));
-        assert_eq!(app.tab, Tab::Overview);
-        assert!(!app.should_quit());
-        // now at root: q arms again
+        // q on the new top tab arms again (no back-through-tabs)
         app.on_key(key(KeyCode::Char('q')));
         assert!(!app.should_quit());
         assert!(app.confirm_quit);
+        assert_eq!(app.tab, Tab::Capsule);
     }
 
     #[test]

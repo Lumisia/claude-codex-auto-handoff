@@ -65,11 +65,75 @@ pub fn toggle_state(path: &Path) -> Result<String, CapsuleOpError> {
     Ok(new.to_string())
 }
 
-/// Replace the capsule's summary goal and write it back.
-pub fn set_goal(path: &Path, goal: &str) -> Result<(), CapsuleOpError> {
+/// A capsule field the user can edit from the detail pane. These are the parts
+/// that steer the next agent: the goal, the explicit handoff prompt, and the
+/// done / remaining / risks lists. (Ids, timestamps, redaction and the file
+/// list are left read-only — editing them would misrepresent what happened.)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CapField {
+    Goal,
+    NextPrompt,
+    Remaining,
+    Done,
+    Risks,
+}
+
+impl CapField {
+    pub fn label(self) -> &'static str {
+        match self {
+            CapField::Goal => "Goal",
+            CapField::NextPrompt => "Next prompt",
+            CapField::Remaining => "Remaining",
+            CapField::Done => "Done",
+            CapField::Risks => "Risks",
+        }
+    }
+
+    /// List fields are edited as ` | `-separated items on one line.
+    pub fn is_list(self) -> bool {
+        matches!(self, CapField::Remaining | CapField::Done | CapField::Risks)
+    }
+}
+
+const LIST_SEP: &str = " | ";
+
+/// The current editable text for `field` (list fields joined by ` | `).
+pub fn field_text(capsule: &Capsule, field: CapField) -> String {
+    match field {
+        CapField::Goal => capsule.summary.goal.clone(),
+        CapField::NextPrompt => capsule.next_prompt.clone().unwrap_or_default(),
+        CapField::Remaining => capsule.summary.remaining.join(LIST_SEP),
+        CapField::Done => capsule.summary.done.join(LIST_SEP),
+        CapField::Risks => capsule.summary.risks.join(LIST_SEP),
+    }
+}
+
+/// Apply edited `text` to `field` and write the capsule back. List fields are
+/// split on `|`; an empty next-prompt clears it to `null`.
+pub fn set_field(path: &Path, field: CapField, text: &str) -> Result<(), CapsuleOpError> {
     let mut capsule = load(path)?;
-    capsule.summary.goal = goal.to_string();
+    match field {
+        CapField::Goal => capsule.summary.goal = text.to_string(),
+        CapField::NextPrompt => {
+            capsule.next_prompt = if text.trim().is_empty() {
+                None
+            } else {
+                Some(text.to_string())
+            };
+        }
+        CapField::Remaining => capsule.summary.remaining = split_list(text),
+        CapField::Done => capsule.summary.done = split_list(text),
+        CapField::Risks => capsule.summary.risks = split_list(text),
+    }
     store(path, &capsule)
+}
+
+fn split_list(text: &str) -> Vec<String> {
+    text.split('|')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .collect()
 }
 
 /// Delete the capsule file.
@@ -136,13 +200,39 @@ mod tests {
     }
 
     #[test]
-    fn set_goal_updates_only_the_goal() {
+    fn set_field_goal_updates_only_the_goal() {
         let dir = tempfile::tempdir().unwrap();
         let path = write_sample(dir.path());
-        set_goal(&path, "new goal").unwrap();
+        set_field(&path, CapField::Goal, "new goal").unwrap();
         let c: Capsule = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
         assert_eq!(c.summary.goal, "new goal");
         assert_eq!(c.capsule_id, "cap_1"); // untouched
+    }
+
+    #[test]
+    fn set_field_list_splits_on_pipe_and_round_trips() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = write_sample(dir.path());
+        set_field(&path, CapField::Remaining, "wire rotation | add rate limit |  ").unwrap();
+        let c: Capsule = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert_eq!(c.summary.remaining, vec!["wire rotation", "add rate limit"]);
+        // and field_text re-joins them for editing
+        assert_eq!(
+            field_text(&c, CapField::Remaining),
+            "wire rotation | add rate limit"
+        );
+    }
+
+    #[test]
+    fn set_field_next_prompt_empty_clears_to_none() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = write_sample(dir.path());
+        set_field(&path, CapField::NextPrompt, "do the thing").unwrap();
+        let c: Capsule = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert_eq!(c.next_prompt.as_deref(), Some("do the thing"));
+        set_field(&path, CapField::NextPrompt, "   ").unwrap();
+        let c: Capsule = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert!(c.next_prompt.is_none());
     }
 
     #[test]

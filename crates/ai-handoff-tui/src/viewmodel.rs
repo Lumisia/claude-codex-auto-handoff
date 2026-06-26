@@ -200,7 +200,7 @@ mod tests {
     #[test]
     fn settings_rows_cover_all_keys_with_kinds() {
         let rows = settings_rows(&Config::default());
-        assert_eq!(rows.len(), 7);
+        assert_eq!(rows.len(), 8);
         let threshold = rows
             .iter()
             .find(|r| r.key == "triggers.five_hour.threshold_percent")

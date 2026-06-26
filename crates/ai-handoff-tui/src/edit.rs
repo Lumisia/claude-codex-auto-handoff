@@ -20,6 +20,7 @@ pub enum EditAction {
 const PERCENT_STEP: f64 = 5.0;
 const MINUTES_STEP: f64 = 5.0;
 const MODES: [&str; 3] = ["off", "ask", "auto"];
+const LANGS: [&str; 4] = ["en", "ko", "ja", "zh"];
 
 /// Compute the next raw value for `key`'s `kind`, given the current effective
 /// `current` value and an `action`. Returns `None` if `current` is unparseable
@@ -30,15 +31,8 @@ pub fn next_raw(kind: KeyKind, current: &str, action: EditAction) -> Option<Stri
             let now: bool = current.parse().ok()?;
             Some((!now).to_string())
         }
-        KeyKind::Mode => {
-            let idx = MODES.iter().position(|m| *m == current).unwrap_or(0);
-            let len = MODES.len();
-            let next = match action {
-                EditAction::Prev => (idx + len - 1) % len,
-                _ => (idx + 1) % len,
-            };
-            Some(MODES[next].to_string())
-        }
+        KeyKind::Mode => Some(cycle(&MODES, current, action)),
+        KeyKind::Lang => Some(cycle(&LANGS, current, action)),
         KeyKind::Percent => {
             let now: f64 = current.parse().ok()?;
             let delta = if action == EditAction::Prev { -PERCENT_STEP } else { PERCENT_STEP };
@@ -50,6 +44,18 @@ pub fn next_raw(kind: KeyKind, current: &str, action: EditAction) -> Option<Stri
             Some(fmt_num((now + delta).max(MINUTES_STEP)))
         }
     }
+}
+
+/// Cycle through a fixed list of string values (wrapping), stepping back on
+/// `Prev` and forward otherwise. Unknown `current` starts at index 0.
+fn cycle(values: &[&str], current: &str, action: EditAction) -> String {
+    let idx = values.iter().position(|v| *v == current).unwrap_or(0);
+    let len = values.len();
+    let next = match action {
+        EditAction::Prev => (idx + len - 1) % len,
+        _ => (idx + 1) % len,
+    };
+    values[next].to_string()
 }
 
 /// Error from committing a settings edit.
@@ -111,6 +117,15 @@ mod tests {
         assert_eq!(next_raw(KeyKind::Mode, "ask", EditAction::Next).unwrap(), "auto");
         assert_eq!(next_raw(KeyKind::Mode, "auto", EditAction::Next).unwrap(), "off");
         assert_eq!(next_raw(KeyKind::Mode, "off", EditAction::Prev).unwrap(), "auto");
+    }
+
+    #[test]
+    fn lang_cycles_through_four_codes() {
+        assert_eq!(next_raw(KeyKind::Lang, "en", EditAction::Next).unwrap(), "ko");
+        assert_eq!(next_raw(KeyKind::Lang, "ko", EditAction::Next).unwrap(), "ja");
+        assert_eq!(next_raw(KeyKind::Lang, "ja", EditAction::Next).unwrap(), "zh");
+        assert_eq!(next_raw(KeyKind::Lang, "zh", EditAction::Next).unwrap(), "en");
+        assert_eq!(next_raw(KeyKind::Lang, "en", EditAction::Prev).unwrap(), "zh");
     }
 
     #[test]

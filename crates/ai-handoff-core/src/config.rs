@@ -18,7 +18,19 @@ pub struct Config {
     pub triggers: Triggers,
     pub autostart: Autostart,
     pub statusline: Statusline,
+    pub language: Language,
     pub project_overrides: HashMap<String, ProjectOverride>,
+}
+
+/// UI language preference. Serialized as a short code; defaults to English.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum Language {
+    #[default]
+    En,
+    Ko,
+    Ja,
+    Zh,
 }
 
 /// Statusline display options. Opt-in: defaults to enabled (`show = true`).
@@ -241,6 +253,8 @@ enum ValueKind {
     PosFloat,
     /// One of `off` / `ask` / `auto`.
     Mode,
+    /// A UI language code: `en` / `ko` / `ja` / `zh`.
+    Lang,
 }
 
 /// The whitelist of user-editable keys (dotted) and their value types.
@@ -252,6 +266,7 @@ const SETTABLE: &[(&str, ValueKind)] = &[
     ("triggers.five_hour.burn_rate.runway_minutes", ValueKind::PosFloat),
     ("autostart.enabled", ValueKind::Bool),
     ("statusline.show", ValueKind::Bool),
+    ("language", ValueKind::Lang),
 ];
 
 /// The editable config keys, in display order (for `config list`).
@@ -270,6 +285,8 @@ pub enum KeyKind {
     PosFloat,
     /// `off` / `ask` / `auto`.
     Mode,
+    /// `en` / `ko` / `ja` / `zh`.
+    Lang,
 }
 
 /// The kind of an editable key, or `None` if `key` is not editable.
@@ -279,6 +296,7 @@ pub fn key_kind(key: &str) -> Option<KeyKind> {
         ValueKind::Percent => KeyKind::Percent,
         ValueKind::PosFloat => KeyKind::PosFloat,
         ValueKind::Mode => KeyKind::Mode,
+        ValueKind::Lang => KeyKind::Lang,
     })
 }
 
@@ -299,6 +317,10 @@ impl ValueKind {
             ValueKind::Mode => match raw {
                 "off" | "ask" | "auto" => value(raw),
                 _ => return Err(invalid("expected one of `off`, `ask`, `auto`")),
+            },
+            ValueKind::Lang => match raw {
+                "en" | "ko" | "ja" | "zh" => value(raw),
+                _ => return Err(invalid("expected one of `en`, `ko`, `ja`, `zh`")),
             },
             ValueKind::Percent => {
                 let n: f64 = raw.parse().map_err(|_| invalid("expected a number"))?;
@@ -373,6 +395,7 @@ pub fn get_value(cfg: &Config, key: &str) -> Result<String, ConfigWriteError> {
         "triggers.five_hour.burn_rate.runway_minutes" => fmt_f64(f.burn_rate.runway_minutes),
         "autostart.enabled" => cfg.autostart.enabled.to_string(),
         "statusline.show" => cfg.statusline.show.to_string(),
+        "language" => lang_str(cfg.language).to_string(),
         _ => return Err(ConfigWriteError::UnknownKey(key.to_string())),
     })
 }
@@ -382,6 +405,16 @@ fn mode_str(mode: ModeCfg) -> &'static str {
         ModeCfg::Off => "off",
         ModeCfg::Ask => "ask",
         ModeCfg::Auto => "auto",
+    }
+}
+
+/// Short code for a [`Language`] (matches its serde representation).
+pub fn lang_str(lang: Language) -> &'static str {
+    match lang {
+        Language::En => "en",
+        Language::Ko => "ko",
+        Language::Ja => "ja",
+        Language::Zh => "zh",
     }
 }
 
@@ -693,7 +726,37 @@ enabled = true
         for key in settable_keys() {
             assert!(get_value(&cfg, key).is_ok(), "key {key} not readable");
         }
-        assert_eq!(settable_keys().count(), 7);
+        assert_eq!(settable_keys().count(), 8);
+    }
+
+    #[test]
+    fn language_defaults_to_en_and_parses_each_code() {
+        assert_eq!(Config::default().language, Language::En);
+        assert_eq!(get_value(&Config::default(), "language").unwrap(), "en");
+        for (text, want) in [
+            ("en", Language::En),
+            ("ko", Language::Ko),
+            ("ja", Language::Ja),
+            ("zh", Language::Zh),
+        ] {
+            let c = parse(&format!("language = \"{text}\"\n")).unwrap();
+            assert_eq!(c.language, want);
+        }
+    }
+
+    #[test]
+    fn set_value_language_round_trips_and_rejects_bad_code() {
+        let text = set_value(None, "language", "ko").unwrap();
+        assert_eq!(parse(&text).unwrap().language, Language::Ko);
+        assert!(matches!(
+            set_value(None, "language", "fr").unwrap_err(),
+            ConfigWriteError::InvalidValue { .. }
+        ));
+    }
+
+    #[test]
+    fn key_kind_maps_language() {
+        assert_eq!(key_kind("language"), Some(KeyKind::Lang));
     }
 
     #[test]

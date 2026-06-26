@@ -20,9 +20,186 @@ fn parse_used_percent_line(line: &str) -> Option<f64> {
         .as_f64()
 }
 
+// ---------------------------------------------------------------------------
+// Claude rate-limit sensor
+// ---------------------------------------------------------------------------
+
+/// A Claude rate-limit sample captured from the statusline payload.
+pub struct ClaudeUsage {
+    pub used_percent: f64,
+    pub window_minutes: u32,
+    pub resets_at: Option<f64>,
+    pub source: &'static str,
+    pub captured_at: i64,
+}
+
+/// Compute the lowercase-hex SHA-256 of the given bytes (full 64 hex chars).
+fn sha256_hex(s: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let mut h = Sha256::new();
+    h.update(s.as_bytes());
+    let digest = h.finalize();
+    let mut hex = String::with_capacity(64);
+    for b in digest.iter() {
+        use std::fmt::Write;
+        let _ = write!(hex, "{b:02x}");
+    }
+    hex
+}
+
+/// Record a Claude rate-limit sample from a statusline JSON payload.
+///
+/// Extracts `rate_limits.five_hour.used_percentage`, `session_id`, and
+/// optionally `rate_limits.five_hour.resets_at` from `input`. Writes a
+/// sample JSON file under `paths::rate_limits_dir()` atomically (tmp +
+/// rename). Returns `true` iff the sample was written successfully.
+///
+/// Returns `false` (and writes nothing, never panics) when:
+/// - `session_id` is absent or empty
+/// - `used_percentage` is absent, non-finite, or outside [0.0, 100.0]
+pub fn record_claude_rate_limit(input: &serde_json::Value, now_ms: i64) -> bool {
+    // Extract and validate session_id.
+    let session_id = match input.get("session_id").and_then(|v| v.as_str()) {
+        Some(s) if !s.is_empty() => s,
+        _ => return false,
+    };
+
+    // Extract and validate used_percentage.
+    let used_percent = match input
+        .get("rate_limits")
+        .and_then(|rl| rl.get("five_hour"))
+        .and_then(|fh| fh.get("used_percentage"))
+        .and_then(|v| v.as_f64())
+    {
+        Some(p) if p.is_finite() && (0.0..=100.0).contains(&p) => p,
+        _ => return false,
+    };
+
+    // Extract optional resets_at (unix seconds, may be absent or null).
+    let resets_at: Option<f64> = input
+        .get("rate_limits")
+        .and_then(|rl| rl.get("five_hour"))
+        .and_then(|fh| fh.get("resets_at"))
+        .and_then(|v| v.as_f64());
+
+    // Ensure the directory exists.
+    let dir = crate::paths::rate_limits_dir();
+    if std::fs::create_dir_all(&dir).is_err() {
+        return false;
+    }
+
+    // Build the target file path.
+    let file_name = format!("{}.json", sha256_hex(session_id));
+    let target = dir.join(&file_name);
+    let tmp = dir.join(format!("{}.tmp", file_name));
+
+    // Build the sample JSON.
+    let sample = serde_json::json!({
+        "session_id": session_id,
+        "used_percent": used_percent,
+        "resets_at": resets_at,
+        "captured_at": now_ms,
+    });
+    let json = match serde_json::to_vec(&sample) {
+        Ok(b) => b,
+        Err(_) => return false,
+    };
+
+    // Atomic write: write to tmp then rename over target.
+    if std::fs::write(&tmp, &json).is_err() {
+        let _ = std::fs::remove_file(&tmp);
+        return false;
+    }
+    match std::fs::rename(&tmp, &target) {
+        Ok(()) => true,
+        Err(_) => {
+            let _ = std::fs::remove_file(&tmp);
+            false
+        }
+    }
+}
+
+/// Scan all `*.json` files in `paths::rate_limits_dir()` and return the
+/// freshest valid `ClaudeUsage` sample.
+///
+/// A sample is valid when:
+/// - `now_ms - captured_at <= freshness_ms`
+/// - `resets_at` is `None` OR `now_ms < (resets_at * 1000.0) as i64`
+///
+/// Unreadable or non-JSON files are silently skipped. Returns `None` when
+/// the directory is missing or no valid samples exist.
+pub fn read_claude_rate_limit(freshness_ms: i64, now_ms: i64) -> Option<ClaudeUsage> {
+    let dir = crate::paths::rate_limits_dir();
+    let entries = match std::fs::read_dir(&dir) {
+        Ok(e) => e,
+        Err(_) => return None,
+    };
+
+    let mut best: Option<ClaudeUsage> = None;
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("json") {
+            continue;
+        }
+
+        // Parse the file; skip on any error.
+        let bytes = match std::fs::read(&path) {
+            Ok(b) => b,
+            Err(_) => continue,
+        };
+        let v: serde_json::Value = match serde_json::from_slice(&bytes) {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+
+        let used_percent = match v.get("used_percent").and_then(|x| x.as_f64()) {
+            Some(p) => p,
+            None => continue,
+        };
+        let captured_at = match v.get("captured_at").and_then(|x| x.as_i64()) {
+            Some(t) => t,
+            None => continue,
+        };
+        let resets_at: Option<f64> = v.get("resets_at").and_then(|x| x.as_f64());
+
+        // Validate freshness.
+        if now_ms - captured_at > freshness_ms {
+            continue;
+        }
+        // Validate resets_at: skip if already past.
+        if let Some(ra) = resets_at {
+            if now_ms >= (ra * 1000.0) as i64 {
+                continue;
+            }
+        }
+
+        // Keep the freshest (largest captured_at).
+        let is_better = best
+            .as_ref()
+            .map(|b| captured_at > b.captured_at)
+            .unwrap_or(true);
+        if is_better {
+            best = Some(ClaudeUsage {
+                used_percent,
+                window_minutes: 300,
+                resets_at,
+                source: "claude-statusline",
+                captured_at,
+            });
+        }
+    }
+
+    best
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // -----------------------------------------------------------------------
+    // Codex JSONL tests (unchanged)
+    // -----------------------------------------------------------------------
 
     #[test]
     fn jsonl_missing_file_is_none() {
@@ -49,5 +226,135 @@ mod tests {
         let p = dir.path().join("u.jsonl");
         std::fs::write(&p, "{\"used_percent\":42.5}\n").unwrap();
         assert!(used_percent_from_jsonl(&p).is_none());
+    }
+
+    // -----------------------------------------------------------------------
+    // Claude sensor tests
+    //
+    // All env-mutating (AI_HANDOFF_HOME) tests are sequential in ONE #[test]
+    // fn to avoid races with other tests in the workspace (mirrors the
+    // approach in paths.rs::home_and_layout_paths).
+    // -----------------------------------------------------------------------
+
+    fn make_input(
+        session_id: Option<&str>,
+        used_percentage: Option<serde_json::Value>,
+        resets_at: Option<serde_json::Value>,
+    ) -> serde_json::Value {
+        let mut obj = serde_json::json!({});
+        if let Some(sid) = session_id {
+            obj["session_id"] = serde_json::Value::String(sid.to_string());
+        }
+        let mut fh = serde_json::json!({});
+        if let Some(up) = used_percentage {
+            fh["used_percentage"] = up;
+        }
+        if let Some(ra) = resets_at {
+            fh["resets_at"] = ra;
+        }
+        obj["rate_limits"] = serde_json::json!({ "five_hour": fh });
+        obj
+    }
+
+    #[test]
+    fn claude_sensor_all_cases() {
+        let home = tempfile::tempdir().unwrap();
+        std::env::set_var("AI_HANDOFF_HOME", home.path());
+
+        let now_ms: i64 = 1_750_000_000_000;
+
+        // --- record rejects: empty session_id ---
+        let v = make_input(Some(""), Some(serde_json::json!(50.0)), None);
+        assert!(!record_claude_rate_limit(&v, now_ms), "empty session_id must return false");
+
+        // --- record rejects: missing session_id ---
+        let v = make_input(None, Some(serde_json::json!(50.0)), None);
+        assert!(!record_claude_rate_limit(&v, now_ms), "missing session_id must return false");
+
+        // --- record rejects: used_percentage = 101 ---
+        let v = make_input(Some("sid-A"), Some(serde_json::json!(101.0)), None);
+        assert!(!record_claude_rate_limit(&v, now_ms), "used_percentage=101 must return false");
+
+        // --- record rejects: used_percentage = -1 ---
+        let v = make_input(Some("sid-A"), Some(serde_json::json!(-1.0)), None);
+        assert!(!record_claude_rate_limit(&v, now_ms), "used_percentage=-1 must return false");
+
+        // --- record rejects: NaN ---
+        let v = make_input(Some("sid-A"), Some(serde_json::json!(f64::NAN)), None);
+        assert!(!record_claude_rate_limit(&v, now_ms), "NaN used_percentage must return false");
+
+        // Verify nothing was written for any of those rejections.
+        let dir = crate::paths::rate_limits_dir();
+        let count = if dir.exists() {
+            std::fs::read_dir(&dir).unwrap().count()
+        } else {
+            0
+        };
+        assert_eq!(count, 0, "no files should be written on rejection");
+
+        // --- record then read returns the same used_percent ---
+        let v = make_input(Some("sid-roundtrip"), Some(serde_json::json!(42.5)), None);
+        assert!(record_claude_rate_limit(&v, now_ms));
+        let usage = read_claude_rate_limit(60_000, now_ms).expect("should read back the sample");
+        assert_eq!(usage.used_percent, 42.5);
+        assert_eq!(usage.window_minutes, 300);
+        assert_eq!(usage.source, "claude-statusline");
+        assert_eq!(usage.captured_at, now_ms);
+        assert!(usage.resets_at.is_none());
+
+        // --- resets_at in the past → read returns None ---
+        // Write a new session with resets_at 1 second in the past (unix seconds).
+        let past_resets = (now_ms as f64 / 1000.0) - 1.0; // 1 second ago
+        let v = make_input(
+            Some("sid-expired"),
+            Some(serde_json::json!(30.0)),
+            Some(serde_json::json!(past_resets)),
+        );
+        assert!(record_claude_rate_limit(&v, now_ms));
+        // The only valid session is sid-roundtrip (no resets_at). The expired one is skipped.
+        let usage = read_claude_rate_limit(60_000, now_ms).unwrap();
+        // It should be from sid-roundtrip, not sid-expired (which has expired resets_at)
+        assert_eq!(usage.used_percent, 42.5);
+
+        // --- captured_at older than freshness_ms → None ---
+        // Overwrite with a sample whose home is fresh but simulate a stale reading:
+        // write a stale sample for a NEW session (won't overwrite sid-roundtrip).
+        let stale_time = now_ms - 120_001; // older than 120_000 ms freshness
+        let v = make_input(Some("sid-stale"), Some(serde_json::json!(99.0)), None);
+        assert!(record_claude_rate_limit(&v, stale_time));
+        // read with freshness_ms=120_000 — sid-stale is too old, sid-roundtrip still valid.
+        let usage = read_claude_rate_limit(120_000, now_ms).unwrap();
+        assert!(
+            (usage.used_percent - 42.5).abs() < f64::EPSILON,
+            "stale sample should be ignored, got {}",
+            usage.used_percent
+        );
+
+        // --- two samples, freshest captured_at wins ---
+        // Write a fresher sample for a new session.
+        let fresher_time = now_ms + 1000;
+        let v = make_input(Some("sid-fresh"), Some(serde_json::json!(77.0)), None);
+        assert!(record_claude_rate_limit(&v, fresher_time));
+        let usage = read_claude_rate_limit(120_000, fresher_time + 1000).unwrap();
+        assert_eq!(usage.used_percent, 77.0, "freshest sample should win");
+        assert_eq!(usage.captured_at, fresher_time);
+
+        // --- garbage file in dir is skipped, valid one still read ---
+        let garbage = crate::paths::rate_limits_dir().join("garbage.json");
+        std::fs::write(&garbage, b"NOT JSON AT ALL!!!").unwrap();
+        // Should still read the valid sample.
+        let usage = read_claude_rate_limit(120_000, fresher_time + 1000);
+        assert!(usage.is_some(), "garbage file should be skipped, valid sample still returned");
+
+        std::env::remove_var("AI_HANDOFF_HOME");
+
+        // --- missing dir → read returns None ---
+        // Point AI_HANDOFF_HOME to a directory with no rate-limits subdir.
+        let empty_home = tempfile::tempdir().unwrap();
+        std::env::set_var("AI_HANDOFF_HOME", empty_home.path());
+        let result = read_claude_rate_limit(60_000, now_ms);
+        assert!(result.is_none(), "missing dir must return None");
+
+        std::env::remove_var("AI_HANDOFF_HOME");
     }
 }

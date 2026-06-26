@@ -49,6 +49,9 @@ fn os_default_home() -> PathBuf {
 pub fn store_dir() -> PathBuf {
     home().join("store")
 }
+pub fn rate_limits_dir() -> PathBuf {
+    store_dir().join("rate-limits")
+}
 pub fn ipc_dir() -> PathBuf {
     home().join("ipc")
 }
@@ -111,6 +114,10 @@ mod tests {
         assert_eq!(
             capsule_path("projX", "capY"),
             PathBuf::from("/tmp/ah-layout/store/capsules/projX/capY.json")
+        );
+        assert_eq!(
+            rate_limits_dir(),
+            PathBuf::from("/tmp/ah-layout/store/rate-limits")
         );
         std::env::remove_var("AI_HANDOFF_HOME");
     }

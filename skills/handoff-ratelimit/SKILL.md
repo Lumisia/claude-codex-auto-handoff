@@ -1,18 +1,43 @@
 ---
 name: handoff-ratelimit
-description: Detects when the agent's 5-hour usage limit crosses the configured threshold and creates a handoff capsule so the other agent (Claude Code <-> Codex) can continue.
+description: Shows how close you are to the 5-hour usage limit and explains how automatic handoff triggers near that limit.
 ---
 
 # handoff-ratelimit
 
-This skill is driven by the Stop hook. When the 5-hour usage limit reaches the
-configured `threshold_percent` (default 80), the hook creates a capsule via
-`core/cli.mjs hook:stop`.
+ai-handoff watches your 5-hour usage window. When usage crosses the configured
+`threshold_percent` (default 80 %), the daemon automatically creates a handoff capsule
+so the other agent can continue without losing context.
 
-- `auto` mode: one Stop continuation requests a strict semantic sentinel, then publishes it.
-- `ask` mode: the agent is prompted to run `/handoff create` or `/handoff skip`.
-- `off` mode: no automatic detection.
+## Statusline indicator (exists now)
 
-Thresholds and modes live in `config.json` (see `config/defaults.json`). The
-capsule is published to the shared store; the other agent ingests it on
-SessionStart or via `/handoff`.
+The current usage level is displayed live in the agent statusline after you run
+`ai-handoff install`. The indicator updates every check cycle from the daemon.
+
+To install or refresh it:
+
+    ai-handoff install
+    aho install
+
+## Checking usage from the CLI (coming in this release)
+
+Two commands are landing in this release:
+
+    ai-handoff usage       # token usage so far in the current 5-hour window
+    ai-handoff limits      # local estimate of remaining quota
+
+These are not available yet. Until they land, check the statusline indicator or open the
+dashboard:
+
+    ai-handoff dashboard   # GUI view with usage history
+
+## Automatic handoff modes
+
+Configured via `mode` in `~/.ai-handoff/config.toml`:
+
+- `auto` — daemon creates and publishes a capsule automatically when the threshold is crossed.
+- `ask` — daemon prompts you to run `/handoff checkpoint` or dismiss the request.
+- `off` — no automatic detection; manual checkpoints only.
+
+Invoke as `/handoff-ratelimit` in Claude Code or `@handoff-ratelimit` in Codex to
+display this information in context.

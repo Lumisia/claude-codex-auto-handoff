@@ -1,0 +1,14 @@
+[package]
+name = "ai-handoff-tui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+ratatui = { workspace = true }
+crossterm = { workspace = true }
+ai-handoff-core = { path = "../ai-handoff-core" }
+ai-handoff-usage = { path = "../ai-handoff-usage" }
+
+[dev-dependencies]
+tempfile = { workspace = true }

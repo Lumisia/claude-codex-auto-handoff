@@ -1,0 +1,164 @@
+//! Pure config-edit logic for the Settings tab: compute the next value for a
+//! key given a keypress, then commit it to disk via the core never-clobber
+//! writer. No ratatui here so the value transitions are unit-testable.
+
+use std::path::Path;
+
+use ai_handoff_core::config::{self, ConfigWriteError, KeyKind};
+
+/// A Settings-tab edit gesture.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EditAction {
+    /// Space — flip a bool / advance an enum / step a number up.
+    Toggle,
+    /// Right / `+` — next enum value or step a number up.
+    Next,
+    /// Left / `-` — previous enum value or step a number down.
+    Prev,
+}
+
+const PERCENT_STEP: f64 = 5.0;
+const MINUTES_STEP: f64 = 5.0;
+const MODES: [&str; 3] = ["off", "ask", "auto"];
+
+/// Compute the next raw value for `key`'s `kind`, given the current effective
+/// `current` value and an `action`. Returns `None` if `current` is unparseable
+/// (the caller keeps the old value).
+pub fn next_raw(kind: KeyKind, current: &str, action: EditAction) -> Option<String> {
+    match kind {
+        KeyKind::Bool => {
+            let now: bool = current.parse().ok()?;
+            Some((!now).to_string())
+        }
+        KeyKind::Mode => {
+            let idx = MODES.iter().position(|m| *m == current).unwrap_or(0);
+            let len = MODES.len();
+            let next = match action {
+                EditAction::Prev => (idx + len - 1) % len,
+                _ => (idx + 1) % len,
+            };
+            Some(MODES[next].to_string())
+        }
+        KeyKind::Percent => {
+            let now: f64 = current.parse().ok()?;
+            let delta = if action == EditAction::Prev { -PERCENT_STEP } else { PERCENT_STEP };
+            Some(fmt_num((now + delta).clamp(0.0, 100.0)))
+        }
+        KeyKind::PosFloat => {
+            let now: f64 = current.parse().ok()?;
+            let delta = if action == EditAction::Prev { -MINUTES_STEP } else { MINUTES_STEP };
+            Some(fmt_num((now + delta).max(MINUTES_STEP)))
+        }
+    }
+}
+
+/// Error from committing a settings edit.
+#[derive(Debug)]
+pub enum CommitError {
+    Validation(ConfigWriteError),
+    Io(std::io::Error),
+}
+
+impl std::fmt::Display for CommitError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            CommitError::Validation(e) => write!(f, "{e}"),
+            CommitError::Io(e) => write!(f, "write failed: {e}"),
+        }
+    }
+}
+
+/// Read `path`, set `key=raw` (never-clobber), and atomically write it back.
+/// Returns the new effective value string on success.
+pub fn commit(path: &Path, key: &str, raw: &str) -> Result<String, CommitError> {
+    let existing = std::fs::read_to_string(path).ok();
+    let text = config::set_value(existing.as_deref(), key, raw).map_err(CommitError::Validation)?;
+    write_atomic(path, &text).map_err(CommitError::Io)?;
+    Ok(raw.to_string())
+}
+
+fn write_atomic(path: &Path, text: &str) -> std::io::Result<()> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let tmp = path.with_extension("toml.tmp");
+    std::fs::write(&tmp, text)?;
+    std::fs::rename(&tmp, path)
+}
+
+/// Format a float without a redundant `.0` tail (mirrors core's display).
+fn fmt_num(n: f64) -> String {
+    if n.fract() == 0.0 {
+        format!("{}", n as i64)
+    } else {
+        n.to_string()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bool_toggles() {
+        assert_eq!(next_raw(KeyKind::Bool, "true", EditAction::Toggle).unwrap(), "false");
+        assert_eq!(next_raw(KeyKind::Bool, "false", EditAction::Next).unwrap(), "true");
+    }
+
+    #[test]
+    fn mode_cycles_both_directions() {
+        assert_eq!(next_raw(KeyKind::Mode, "off", EditAction::Next).unwrap(), "ask");
+        assert_eq!(next_raw(KeyKind::Mode, "ask", EditAction::Next).unwrap(), "auto");
+        assert_eq!(next_raw(KeyKind::Mode, "auto", EditAction::Next).unwrap(), "off");
+        assert_eq!(next_raw(KeyKind::Mode, "off", EditAction::Prev).unwrap(), "auto");
+    }
+
+    #[test]
+    fn percent_steps_and_clamps() {
+        assert_eq!(next_raw(KeyKind::Percent, "80", EditAction::Next).unwrap(), "85");
+        assert_eq!(next_raw(KeyKind::Percent, "98", EditAction::Next).unwrap(), "100");
+        assert_eq!(next_raw(KeyKind::Percent, "2", EditAction::Prev).unwrap(), "0");
+    }
+
+    #[test]
+    fn posfloat_steps_with_floor() {
+        assert_eq!(next_raw(KeyKind::PosFloat, "30", EditAction::Next).unwrap(), "35");
+        assert_eq!(next_raw(KeyKind::PosFloat, "5", EditAction::Prev).unwrap(), "5");
+    }
+
+    #[test]
+    fn unparseable_current_yields_none() {
+        assert!(next_raw(KeyKind::Percent, "abc", EditAction::Next).is_none());
+        assert!(next_raw(KeyKind::Bool, "maybe", EditAction::Toggle).is_none());
+    }
+
+    #[test]
+    fn commit_writes_value_and_round_trips() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        commit(&path, "triggers.five_hour.mode", "auto").unwrap();
+        let cfg = config::load_from(&path);
+        assert_eq!(cfg.triggers.five_hour.mode, ai_handoff_core::config::ModeCfg::Auto);
+    }
+
+    #[test]
+    fn commit_preserves_foreign_content() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        std::fs::write(&path, "# keep\n[autostart]\nenabled = true\n").unwrap();
+        commit(&path, "statusline.show", "false").unwrap();
+        let on_disk = std::fs::read_to_string(&path).unwrap();
+        assert!(on_disk.contains("# keep"));
+        assert!(on_disk.contains("[autostart]"));
+        assert!(!config::load_from(&path).statusline.show);
+    }
+
+    #[test]
+    fn commit_rejects_invalid_value() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        let err = commit(&path, "triggers.five_hour.threshold_percent", "999").unwrap_err();
+        assert!(matches!(err, CommitError::Validation(_)));
+        assert!(!path.exists());
+    }
+}

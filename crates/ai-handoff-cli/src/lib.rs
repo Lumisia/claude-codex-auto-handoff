@@ -48,6 +48,21 @@ pub enum Commands {
         purge_store: bool,
     },
     Statusline,
+    /// View or edit the shared config (applies to Claude and Codex).
+    Config {
+        #[command(subcommand)]
+        action: ConfigAction,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum ConfigAction {
+    /// Print the effective value of a key (built-in default when unset).
+    Get { key: String },
+    /// Set a key to a value, writing ~/.ai-handoff/config.toml (never-clobber).
+    Set { key: String, value: String },
+    /// List every editable key with its effective value.
+    List,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
@@ -104,6 +119,7 @@ pub fn run_cli(cli: Cli) -> anyhow::Result<i32> {
             purge_store,
         }) => commands::uninstall::run(keep_store, purge_store),
         Some(Commands::Statusline) => commands::statusline::run(),
+        Some(Commands::Config { action }) => commands::config::run(action),
     }
 }
 
@@ -152,6 +168,43 @@ mod tests {
         let cli = Cli::try_parse_from(["ai-handoff", "statusline"]).unwrap();
 
         assert!(matches!(cli.command, Some(Commands::Statusline)));
+    }
+
+    #[test]
+    fn parses_config_get_set_list() {
+        let get = Cli::try_parse_from(["ai-handoff", "config", "get", "statusline.show"]).unwrap();
+        match get.command {
+            Some(Commands::Config {
+                action: ConfigAction::Get { key },
+            }) => assert_eq!(key, "statusline.show"),
+            other => panic!("unexpected command: {other:?}"),
+        }
+
+        let set = Cli::try_parse_from([
+            "ai-handoff",
+            "config",
+            "set",
+            "triggers.five_hour.mode",
+            "auto",
+        ])
+        .unwrap();
+        match set.command {
+            Some(Commands::Config {
+                action: ConfigAction::Set { key, value },
+            }) => {
+                assert_eq!(key, "triggers.five_hour.mode");
+                assert_eq!(value, "auto");
+            }
+            other => panic!("unexpected command: {other:?}"),
+        }
+
+        let list = Cli::try_parse_from(["ai-handoff", "config", "list"]).unwrap();
+        assert!(matches!(
+            list.command,
+            Some(Commands::Config {
+                action: ConfigAction::List
+            })
+        ));
     }
 
     #[test]

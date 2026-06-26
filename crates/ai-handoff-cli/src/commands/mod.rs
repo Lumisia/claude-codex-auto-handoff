@@ -1,5 +1,6 @@
 pub mod autostart;
 pub mod checkpoint;
+pub mod config;
 pub mod daemon;
 pub mod dashboard;
 pub mod doctor;

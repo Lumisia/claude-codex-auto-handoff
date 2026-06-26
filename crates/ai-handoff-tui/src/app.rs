@@ -13,7 +13,7 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style, Stylize},
     text::{Line, Span},
-    widgets::{Block, Borders, Cell, Paragraph, Row, Table, Tabs},
+    widgets::{BarChart, Block, Borders, Cell, Paragraph, Row, Table, Tabs},
     DefaultTerminal, Frame,
 };
 
@@ -80,8 +80,10 @@ pub struct App {
     config_path: PathBuf,
     status: String,
     should_quit: bool,
-    /// Armed on the Overview tab by a first q/Esc; a second one then quits.
+    /// Armed at the root (empty history) by a first q/Esc; a second one quits.
     confirm_quit: bool,
+    /// Tab visit history; q/Esc pops it ("back") before arming a quit.
+    nav_stack: Vec<Tab>,
 }
 
 impl App {
@@ -111,6 +113,7 @@ impl App {
             status: DEFAULT_HINT.to_string(),
             should_quit: false,
             confirm_quit: false,
+            nav_stack: Vec::new(),
         }
     }
 
@@ -148,14 +151,14 @@ impl App {
         }
         match key.code {
             KeyCode::Tab | KeyCode::Right if self.tab != Tab::Settings => {
-                self.tab = self.tab.next();
+                self.goto(self.tab.next());
             }
             KeyCode::BackTab | KeyCode::Left if self.tab != Tab::Settings => {
-                self.tab = self.tab.prev();
+                self.goto(self.tab.prev());
             }
-            KeyCode::Char('1') => self.tab = Tab::Overview,
-            KeyCode::Char('2') => self.tab = Tab::Usage,
-            KeyCode::Char('3') => self.tab = Tab::Settings,
+            KeyCode::Char('1') => self.goto(Tab::Overview),
+            KeyCode::Char('2') => self.goto(Tab::Usage),
+            KeyCode::Char('3') => self.goto(Tab::Settings),
             _ => match self.tab {
                 Tab::Usage => self.on_usage_key(key),
                 Tab::Settings => self.on_settings_key(key),
@@ -164,10 +167,19 @@ impl App {
         }
     }
 
-    /// q/Esc: from a sub-tab return to Overview; on Overview arm-then-quit.
+    /// Switch tabs, recording where we came from so q/Esc can step back.
+    fn goto(&mut self, target: Tab) {
+        if target != self.tab {
+            self.nav_stack.push(self.tab);
+            self.tab = target;
+        }
+    }
+
+    /// q/Esc: step back to the previously-visited tab; at the root (empty
+    /// history) arm a quit, and quit on the second press.
     fn on_back(&mut self) {
-        if self.tab != Tab::Overview {
-            self.tab = Tab::Overview;
+        if let Some(prev) = self.nav_stack.pop() {
+            self.tab = prev;
             self.confirm_quit = false;
             self.status = DEFAULT_HINT.to_string();
         } else if self.confirm_quit {
@@ -250,7 +262,12 @@ impl App {
         let tabs = Tabs::new(titles)
             .select(self.tab.index())
             .block(Block::default().borders(Borders::ALL).title("AI Handoff"))
-            .highlight_style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD));
+            .highlight_style(
+                Style::default()
+                    .fg(Color::Black)
+                    .bg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            );
         f.render_widget(tabs, area);
     }
 
@@ -302,14 +319,42 @@ impl App {
             f.render_widget(para, area);
             return;
         }
-        let rows = groups.iter().map(group_table_row);
+
+        // Top: a token bar chart for the current dimension. Bottom: the table.
+        let rows = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Percentage(58), Constraint::Percentage(42)])
+            .split(area);
+
+        // Bar labels/values must outlive the BarChart, so own them here.
+        let owned: Vec<(String, u64)> = chart_subset(dim, groups)
+            .iter()
+            .map(|g| (short_label(dim, &g.key), g.tokens.total()))
+            .collect();
+        let data: Vec<(&str, u64)> = owned.iter().map(|(k, v)| (k.as_str(), *v)).collect();
+        let bar_width = bar_width_for(rows[0].width, data.len());
+        let chart = BarChart::default()
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title(format!("{title}  [tokens]")),
+            )
+            .data(data.as_slice())
+            .bar_width(bar_width)
+            .bar_gap(1)
+            .bar_style(Style::default().fg(Color::Cyan))
+            .value_style(Style::default().fg(Color::Black).bg(Color::Cyan))
+            .label_style(Style::default().fg(Color::Gray));
+        f.render_widget(chart, rows[0]);
+
+        let table_rows = groups.iter().map(group_table_row);
         let table = Table::new(
-            rows,
+            table_rows,
             [Constraint::Min(16), Constraint::Length(16), Constraint::Length(12), Constraint::Length(14)],
         )
         .header(Row::new(["Key", "Tokens", "Est $", "Unpriced"]).style(Style::default().add_modifier(Modifier::BOLD)))
-        .block(Block::default().borders(Borders::ALL).title(title));
-        f.render_widget(table, area);
+        .block(Block::default().borders(Borders::ALL));
+        f.render_widget(table, rows[1]);
     }
 
     fn draw_settings(&self, f: &mut Frame, area: Rect) {
@@ -362,6 +407,60 @@ fn group_table_row(g: &Group) -> Row<'static> {
     ])
 }
 
+/// Pick which groups to chart: the most recent ~14 days for the Day dimension
+/// (chronological), otherwise the top ~12 buckets (already tokens-desc).
+fn chart_subset(dim: Dimension, groups: &[Group]) -> Vec<&Group> {
+    match dim {
+        // by_day is ascending; keep the last 14 in chronological order.
+        Dimension::Day => {
+            let start = groups.len().saturating_sub(14);
+            groups[start..].iter().collect()
+        }
+        // already sorted tokens-desc; take the biggest 12.
+        _ => groups.iter().take(12).collect(),
+    }
+}
+
+/// Shorten a group key to fit under a bar.
+fn short_label(dim: Dimension, key: &str) -> String {
+    if key.is_empty() {
+        return "?".to_string();
+    }
+    match dim {
+        // YYYY-MM-DD -> MM-DD
+        Dimension::Day => key.get(5..).unwrap_or(key).to_string(),
+        // basename of a path
+        Dimension::Project => key
+            .rsplit(['/', '\\'])
+            .next()
+            .filter(|s| !s.is_empty())
+            .unwrap_or(key)
+            .chars()
+            .take(10)
+            .collect(),
+        // strip a vendor prefix, cap length
+        Dimension::Model => key
+            .rsplit_once('-')
+            .map(|(_, tail)| tail)
+            .filter(|t| t.len() >= 2)
+            .unwrap_or(key)
+            .chars()
+            .take(10)
+            .collect(),
+        Dimension::Source => key.to_string(),
+    }
+}
+
+/// Bar width that fits `n` bars (with 1-cell gaps) into `width`, min 3.
+fn bar_width_for(width: u16, n: usize) -> u16 {
+    if n == 0 {
+        return 3;
+    }
+    let inner = width.saturating_sub(2); // borders
+    let per = inner / n as u16;
+    per.saturating_sub(1).clamp(3, 12)
+}
+
 fn status_style(status: &CheckStatus) -> (&'static str, Color) {
     match status {
         CheckStatus::Ok => ("ok", Color::Green),
@@ -407,15 +506,17 @@ mod tests {
     }
 
     #[test]
-    fn q_on_subtab_returns_to_overview_without_quitting() {
+    fn q_steps_back_through_visited_tabs_not_straight_to_overview() {
         let mut app = test_app();
-        app.tab = Tab::Settings;
-        app.on_key(key(KeyCode::Char('q')));
-        assert_eq!(app.tab, Tab::Overview);
+        app.on_key(key(KeyCode::Char('2'))); // Overview -> Usage
+        app.on_key(key(KeyCode::Char('3'))); // Usage -> Settings
+        assert_eq!(app.tab, Tab::Settings);
+
+        app.on_key(key(KeyCode::Char('q'))); // back to where we were: Usage
+        assert_eq!(app.tab, Tab::Usage);
         assert!(!app.should_quit());
 
-        app.tab = Tab::Usage;
-        app.on_key(key(KeyCode::Esc));
+        app.on_key(key(KeyCode::Esc)); // back again: Overview
         assert_eq!(app.tab, Tab::Overview);
         assert!(!app.should_quit());
     }
@@ -444,17 +545,43 @@ mod tests {
     #[test]
     fn other_key_disarms_quit_confirmation() {
         let mut app = test_app();
-        app.on_key(key(KeyCode::Char('q'))); // arm on Overview
+        app.on_key(key(KeyCode::Char('q'))); // arm on Overview (empty history)
         assert!(app.confirm_quit);
-        app.on_key(key(KeyCode::Tab)); // any other key disarms
+        app.on_key(key(KeyCode::Tab)); // any other key disarms + navigates
         assert!(!app.confirm_quit);
         assert_eq!(app.tab, Tab::Usage);
-        // back to Overview and a single q only re-arms, does not quit
-        app.on_key(key(KeyCode::Char('q'))); // Usage -> Overview
+        // q steps back to Overview (history pop), not a quit
+        app.on_key(key(KeyCode::Char('q')));
         assert_eq!(app.tab, Tab::Overview);
-        app.on_key(key(KeyCode::Char('q'))); // arm
+        assert!(!app.should_quit());
+        // now at root: q arms again
+        app.on_key(key(KeyCode::Char('q')));
         assert!(!app.should_quit());
         assert!(app.confirm_quit);
+    }
+
+    #[test]
+    fn chart_subset_keeps_recent_days_and_top_others() {
+        use ai_handoff_usage::aggregate::Group;
+        let days: Vec<Group> = (1..=20)
+            .map(|d| Group {
+                key: format!("2026-06-{d:02}"),
+                tokens: Default::default(),
+                cost_usd: 0.0,
+                unpriced_tokens: 0,
+                events: 1,
+            })
+            .collect();
+        let subset = chart_subset(Dimension::Day, &days);
+        assert_eq!(subset.len(), 14);
+        assert_eq!(subset.last().unwrap().key, "2026-06-20"); // newest kept, chronological
+    }
+
+    #[test]
+    fn short_label_shortens_per_dimension() {
+        assert_eq!(short_label(Dimension::Day, "2026-06-17"), "06-17");
+        assert_eq!(short_label(Dimension::Project, "C:/code/my-proj"), "my-proj");
+        assert_eq!(short_label(Dimension::Source, "codex"), "codex");
     }
 
     #[test]

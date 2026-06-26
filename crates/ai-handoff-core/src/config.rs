@@ -8,6 +8,7 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use serde::Deserialize;
+use toml_edit::{value, DocumentMut, Item, Table};
 
 use crate::trigger::{BurnRate, TriggerMode};
 
@@ -206,6 +207,170 @@ pub fn load_from(path: &Path) -> Config {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Write API (`config get` / `config set`)
+//
+// Editing is **never-clobber**: `set_value` parses the existing `config.toml`
+// with `toml_edit`, changes exactly the one requested leaf (creating only the
+// implicit parent tables it needs), and re-serializes — every other table,
+// key, comment and string is preserved byte-for-byte. The set of editable
+// keys is a fixed whitelist with per-key type/range validation, so a bad
+// value is rejected before any write rather than corrupting the daemon's view.
+// ---------------------------------------------------------------------------
+
+/// Error from a [`set_value`] / [`get_value`] call.
+#[derive(Debug, thiserror::Error)]
+pub enum ConfigWriteError {
+    #[error("unknown config key: {0}")]
+    UnknownKey(String),
+    #[error("invalid value for {key}: {message}")]
+    InvalidValue { key: String, message: String },
+    #[error("config.toml parse error: {0}")]
+    Parse(#[from] toml_edit::TomlError),
+    #[error("config key {key} sits under a non-table node; refusing to overwrite it")]
+    ShapeConflict { key: String },
+}
+
+/// The value type accepted for an editable key.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ValueKind {
+    Bool,
+    /// A float clamped to the inclusive `0..=100` range.
+    Percent,
+    /// A strictly-positive float.
+    PosFloat,
+    /// One of `off` / `ask` / `auto`.
+    Mode,
+}
+
+/// The whitelist of user-editable keys (dotted) and their value types.
+const SETTABLE: &[(&str, ValueKind)] = &[
+    ("triggers.five_hour.enabled", ValueKind::Bool),
+    ("triggers.five_hour.threshold_percent", ValueKind::Percent),
+    ("triggers.five_hour.mode", ValueKind::Mode),
+    ("triggers.five_hour.burn_rate.enabled", ValueKind::Bool),
+    ("triggers.five_hour.burn_rate.runway_minutes", ValueKind::PosFloat),
+    ("autostart.enabled", ValueKind::Bool),
+    ("statusline.show", ValueKind::Bool),
+];
+
+/// The editable config keys, in display order (for `config list`).
+pub fn settable_keys() -> impl Iterator<Item = &'static str> {
+    SETTABLE.iter().map(|(k, _)| *k)
+}
+
+impl ValueKind {
+    /// Validate `raw` for this kind and convert it to a TOML item.
+    fn to_item(self, key: &str, raw: &str) -> Result<Item, ConfigWriteError> {
+        let invalid = |message: &str| ConfigWriteError::InvalidValue {
+            key: key.to_string(),
+            message: message.to_string(),
+        };
+        Ok(match self {
+            ValueKind::Bool => {
+                let b: bool = raw
+                    .parse()
+                    .map_err(|_| invalid("expected `true` or `false`"))?;
+                value(b)
+            }
+            ValueKind::Mode => match raw {
+                "off" | "ask" | "auto" => value(raw),
+                _ => return Err(invalid("expected one of `off`, `ask`, `auto`")),
+            },
+            ValueKind::Percent => {
+                let n: f64 = raw.parse().map_err(|_| invalid("expected a number"))?;
+                if !(0.0..=100.0).contains(&n) {
+                    return Err(invalid("must be between 0 and 100"));
+                }
+                value(n)
+            }
+            ValueKind::PosFloat => {
+                let n: f64 = raw.parse().map_err(|_| invalid("expected a number"))?;
+                if n.is_nan() || n <= 0.0 {
+                    return Err(invalid("must be greater than 0"));
+                }
+                value(n)
+            }
+        })
+    }
+}
+
+/// Set `key` to `raw` in `existing` config text (or a fresh document when
+/// `existing` is `None`), returning the new serialized `config.toml`.
+///
+/// Rejects unknown keys and out-of-range/ill-typed values before touching the
+/// document. Parse errors on a present-but-corrupt file are propagated so the
+/// caller aborts rather than clobbering it with a blank document.
+pub fn set_value(
+    existing: Option<&str>,
+    key: &str,
+    raw: &str,
+) -> Result<String, ConfigWriteError> {
+    let kind = SETTABLE
+        .iter()
+        .find(|(k, _)| *k == key)
+        .map(|(_, v)| *v)
+        .ok_or_else(|| ConfigWriteError::UnknownKey(key.to_string()))?;
+    let item = kind.to_item(key, raw)?;
+
+    let mut doc: DocumentMut = match existing {
+        Some(s) => s.parse::<DocumentMut>()?,
+        None => DocumentMut::new(),
+    };
+
+    let segments: Vec<&str> = key.split('.').collect();
+    let (last, parents) = segments.split_last().expect("whitelist keys are non-empty");
+    let mut table = doc.as_table_mut();
+    for seg in parents {
+        let entry = table.entry(seg).or_insert_with(|| {
+            let mut t = Table::new();
+            t.set_implicit(true);
+            Item::Table(t)
+        });
+        table = entry
+            .as_table_mut()
+            .ok_or_else(|| ConfigWriteError::ShapeConflict {
+                key: key.to_string(),
+            })?;
+    }
+    table.insert(last, item);
+
+    Ok(doc.to_string())
+}
+
+/// Read the **effective** value of `key` from a resolved [`Config`] (so an
+/// unset key reports its built-in default), formatted as the daemon sees it.
+pub fn get_value(cfg: &Config, key: &str) -> Result<String, ConfigWriteError> {
+    let f = &cfg.triggers.five_hour;
+    Ok(match key {
+        "triggers.five_hour.enabled" => f.enabled.to_string(),
+        "triggers.five_hour.threshold_percent" => fmt_f64(f.threshold_percent),
+        "triggers.five_hour.mode" => mode_str(f.mode).to_string(),
+        "triggers.five_hour.burn_rate.enabled" => f.burn_rate.enabled.to_string(),
+        "triggers.five_hour.burn_rate.runway_minutes" => fmt_f64(f.burn_rate.runway_minutes),
+        "autostart.enabled" => cfg.autostart.enabled.to_string(),
+        "statusline.show" => cfg.statusline.show.to_string(),
+        _ => return Err(ConfigWriteError::UnknownKey(key.to_string())),
+    })
+}
+
+fn mode_str(mode: ModeCfg) -> &'static str {
+    match mode {
+        ModeCfg::Off => "off",
+        ModeCfg::Ask => "ask",
+        ModeCfg::Auto => "auto",
+    }
+}
+
+/// Format a float the way a user typed it: drop a redundant `.0` tail.
+fn fmt_f64(n: f64) -> String {
+    if n.fract() == 0.0 && n.is_finite() {
+        format!("{}", n as i64)
+    } else {
+        n.to_string()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -364,5 +529,141 @@ mod tests {
         assert!(!c.statusline.show);
         // unrelated sections still default
         assert_eq!(c.triggers.five_hour.threshold_percent, 80.0);
+    }
+
+    // --- write API -------------------------------------------------------
+
+    #[test]
+    fn set_value_on_empty_creates_minimal_toml_that_reparses() {
+        let text = set_value(None, "triggers.five_hour.threshold_percent", "70").unwrap();
+        // Round-trips through the typed parser to the requested value.
+        assert_eq!(parse(&text).unwrap().triggers.five_hour.threshold_percent, 70.0);
+        // Only an implicit parent header is emitted, not an empty `[triggers]`.
+        assert!(text.contains("[triggers.five_hour]"));
+        assert!(!text.contains("\n[triggers]\n"));
+    }
+
+    #[test]
+    fn set_value_preserves_unrelated_content_and_comments() {
+        let existing = "\
+# keep me
+[triggers.five_hour]
+threshold_percent = 80
+mode = \"ask\"  # inline note
+
+[autostart]
+enabled = true
+";
+        let text = set_value(Some(existing), "triggers.five_hour.mode", "auto").unwrap();
+        assert!(text.contains("# keep me"));
+        assert!(text.contains("[autostart]"));
+        // foreign key untouched
+        let c = parse(&text).unwrap();
+        assert_eq!(c.triggers.five_hour.mode, ModeCfg::Auto);
+        assert_eq!(c.triggers.five_hour.threshold_percent, 80.0);
+        assert!(c.autostart.enabled);
+    }
+
+    #[test]
+    fn set_value_overwrites_existing_leaf() {
+        let existing = "[statusline]\nshow = true\n";
+        let text = set_value(Some(existing), "statusline.show", "false").unwrap();
+        assert!(!parse(&text).unwrap().statusline.show);
+    }
+
+    #[test]
+    fn set_value_rejects_unknown_key() {
+        let err = set_value(None, "triggers.five_hour.nope", "1").unwrap_err();
+        assert!(matches!(err, ConfigWriteError::UnknownKey(_)));
+    }
+
+    #[test]
+    fn set_value_rejects_out_of_range_percent() {
+        let err = set_value(None, "triggers.five_hour.threshold_percent", "150").unwrap_err();
+        assert!(matches!(err, ConfigWriteError::InvalidValue { .. }));
+    }
+
+    #[test]
+    fn set_value_rejects_bad_bool_and_mode_and_nonpositive() {
+        assert!(matches!(
+            set_value(None, "autostart.enabled", "yes").unwrap_err(),
+            ConfigWriteError::InvalidValue { .. }
+        ));
+        assert!(matches!(
+            set_value(None, "triggers.five_hour.mode", "loud").unwrap_err(),
+            ConfigWriteError::InvalidValue { .. }
+        ));
+        assert!(matches!(
+            set_value(None, "triggers.five_hour.burn_rate.runway_minutes", "0").unwrap_err(),
+            ConfigWriteError::InvalidValue { .. }
+        ));
+    }
+
+    #[test]
+    fn set_value_propagates_parse_error_without_clobbering() {
+        let err = set_value(Some("this = = not toml"), "statusline.show", "false").unwrap_err();
+        assert!(matches!(err, ConfigWriteError::Parse(_)));
+    }
+
+    #[test]
+    fn set_value_errors_on_non_table_parent() {
+        // `triggers` exists but as a scalar — never overwrite it.
+        let err = set_value(
+            Some("triggers = 5\n"),
+            "triggers.five_hour.mode",
+            "auto",
+        )
+        .unwrap_err();
+        assert!(matches!(err, ConfigWriteError::ShapeConflict { .. }));
+    }
+
+    #[test]
+    fn set_value_round_trips_nested_burn_rate() {
+        let text = set_value(None, "triggers.five_hour.burn_rate.runway_minutes", "15").unwrap();
+        let text = set_value(Some(&text), "triggers.five_hour.burn_rate.enabled", "true").unwrap();
+        let c = parse(&text).unwrap();
+        assert!(c.triggers.five_hour.burn_rate.enabled);
+        assert_eq!(c.triggers.five_hour.burn_rate.runway_minutes, 15.0);
+    }
+
+    #[test]
+    fn get_value_reports_effective_defaults_and_set_values() {
+        let cfg = Config::default();
+        assert_eq!(get_value(&cfg, "triggers.five_hour.threshold_percent").unwrap(), "80");
+        assert_eq!(get_value(&cfg, "triggers.five_hour.mode").unwrap(), "ask");
+        assert_eq!(get_value(&cfg, "autostart.enabled").unwrap(), "false");
+        assert_eq!(get_value(&cfg, "statusline.show").unwrap(), "true");
+
+        let cfg = parse("[triggers.five_hour]\nthreshold_percent = 42.5\nmode = \"auto\"\n").unwrap();
+        assert_eq!(get_value(&cfg, "triggers.five_hour.threshold_percent").unwrap(), "42.5");
+        assert_eq!(get_value(&cfg, "triggers.five_hour.mode").unwrap(), "auto");
+    }
+
+    #[test]
+    fn get_value_rejects_unknown_key() {
+        assert!(matches!(
+            get_value(&Config::default(), "bogus.key").unwrap_err(),
+            ConfigWriteError::UnknownKey(_)
+        ));
+    }
+
+    #[test]
+    fn settable_keys_match_get_value_domain() {
+        // every advertised key is readable
+        let cfg = Config::default();
+        for key in settable_keys() {
+            assert!(get_value(&cfg, key).is_ok(), "key {key} not readable");
+        }
+        assert_eq!(settable_keys().count(), 7);
+    }
+
+    #[test]
+    fn set_then_load_from_disk_is_visible_to_daemon() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("config.toml");
+        let text = set_value(None, "triggers.five_hour.threshold_percent", "65").unwrap();
+        std::fs::write(&p, text).unwrap();
+        // The daemon's loader sees the written value.
+        assert_eq!(load_from(&p).triggers.five_hour.threshold_percent, 65.0);
     }
 }

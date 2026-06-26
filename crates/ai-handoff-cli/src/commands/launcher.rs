@@ -4,14 +4,14 @@ use ai_handoff_core::install::state::{InstallState, LauncherState};
 
 pub fn install_aho_launcher(
     ai_home: &Path,
-    gui_exe: Option<&Path>,
+    target_exe: Option<&Path>,
 ) -> anyhow::Result<LauncherState> {
-    install_aho_launcher_with(ai_home, gui_exe, ensure_user_path_contains)
+    install_aho_launcher_with(ai_home, target_exe, ensure_user_path_contains)
 }
 
 fn install_aho_launcher_with<F>(
     ai_home: &Path,
-    gui_exe: Option<&Path>,
+    target_exe: Option<&Path>,
     ensure_path: F,
 ) -> anyhow::Result<LauncherState>
 where
@@ -20,13 +20,10 @@ where
     let bin = ai_home.join("bin");
     std::fs::create_dir_all(&bin)?;
     let cmd = bin.join("aho.cmd");
-    let target = gui_exe
+    let target = target_exe
         .map(Path::to_path_buf)
-        .unwrap_or_else(default_dev_dashboard_target);
-    let text = format!(
-        "@echo off\r\nstart \"\" \"{}\" %*\r\n",
-        target.to_string_lossy()
-    );
+        .unwrap_or_else(default_cli_target);
+    let text = format!("@echo off\r\n\"{}\" %*\r\n", target.to_string_lossy());
     std::fs::write(&cmd, text)?;
     let path_dir_added = ensure_path(&bin)?;
     Ok(LauncherState {
@@ -49,21 +46,14 @@ where
             std::fs::remove_file(p)?;
         }
     }
-    if let Some(dir) = st
-        .launcher
-        .as_ref()
-        .and_then(|l| l.path_dir_added.as_ref())
-    {
+    if let Some(dir) = st.launcher.as_ref().and_then(|l| l.path_dir_added.as_ref()) {
         remove_path(Path::new(dir))?;
     }
     Ok(())
 }
 
-fn default_dev_dashboard_target() -> PathBuf {
-    std::env::current_exe()
-        .ok()
-        .and_then(|exe| exe.parent().map(|p| p.join("AI Handoff.exe")))
-        .unwrap_or_else(|| PathBuf::from("AI Handoff.exe"))
+fn default_cli_target() -> PathBuf {
+    std::env::current_exe().unwrap_or_else(|_| PathBuf::from("ai-handoff.exe"))
 }
 
 #[cfg(windows)]
@@ -167,17 +157,18 @@ mod tests {
     use std::cell::RefCell;
 
     #[test]
-    fn writes_aho_cmd_that_starts_gui_when_gui_path_is_known() {
+    fn writes_aho_cmd_that_invokes_cli_with_forwarded_args() {
         let dir = tempfile::tempdir().unwrap();
-        let gui = dir.path().join("AI Handoff.exe");
+        let cli = dir.path().join("ai-handoff.exe");
 
-        let state = install_aho_launcher_with(dir.path(), Some(&gui), |_| Ok(None)).unwrap();
+        let state = install_aho_launcher_with(dir.path(), Some(&cli), |_| Ok(None)).unwrap();
         let path = std::path::PathBuf::from(state.path.unwrap());
         let text = std::fs::read_to_string(path).unwrap();
 
         assert!(text.contains("@echo off"));
-        assert!(text.contains("start \"\""));
-        assert!(text.contains("AI Handoff.exe"));
+        assert!(text.contains("ai-handoff.exe"));
+        assert!(text.contains("%*"));
+        assert!(!text.contains("start \"\""));
     }
 
     #[test]
@@ -191,7 +182,10 @@ mod tests {
         })
         .unwrap();
 
-        assert_eq!(state.path_dir_added, Some(bin.to_string_lossy().into_owned()));
+        assert_eq!(
+            state.path_dir_added,
+            Some(bin.to_string_lossy().into_owned())
+        );
     }
 
     #[test]

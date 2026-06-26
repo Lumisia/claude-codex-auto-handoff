@@ -7,4 +7,5 @@ pub mod hook;
 pub mod install;
 pub mod launcher;
 pub mod statusline;
+pub mod tui;
 pub mod uninstall;

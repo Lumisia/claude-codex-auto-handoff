@@ -6,7 +6,7 @@ pub mod commands;
 #[command(name = "ai-handoff")]
 pub struct Cli {
     #[command(subcommand)]
-    pub command: Commands,
+    pub command: Option<Commands>,
 }
 
 #[derive(Debug, Subcommand)]
@@ -28,6 +28,7 @@ pub enum Commands {
         #[arg(long)]
         message: Option<String>,
     },
+    Tui,
     Dashboard,
     Install {
         #[arg(long)]
@@ -77,17 +78,18 @@ pub fn main_entry() -> anyhow::Result<i32> {
 
 pub fn run_cli(cli: Cli) -> anyhow::Result<i32> {
     match cli.command {
-        Commands::Hook { event, agent } => commands::hook::run(&event, agent),
-        Commands::Daemon { action } => commands::daemon::run(action),
-        Commands::Doctor { json } => commands::doctor::run(json),
-        Commands::Checkpoint { message } => commands::checkpoint::run(message),
-        Commands::Dashboard => commands::dashboard::run(),
-        Commands::Install {
+        None | Some(Commands::Tui) => commands::tui::run(),
+        Some(Commands::Hook { event, agent }) => commands::hook::run(&event, agent),
+        Some(Commands::Daemon { action }) => commands::daemon::run(action),
+        Some(Commands::Doctor { json }) => commands::doctor::run(json),
+        Some(Commands::Checkpoint { message }) => commands::checkpoint::run(message),
+        Some(Commands::Dashboard) => commands::dashboard::run(),
+        Some(Commands::Install {
             dry_run,
             yes,
             agents,
             no_plugin,
-        } => commands::install::run(
+        }) => commands::install::run(
             dry_run,
             yes,
             if agents.is_empty() {
@@ -97,11 +99,11 @@ pub fn run_cli(cli: Cli) -> anyhow::Result<i32> {
             },
             no_plugin,
         ),
-        Commands::Uninstall {
+        Some(Commands::Uninstall {
             keep_store,
             purge_store,
-        } => commands::uninstall::run(keep_store, purge_store),
-        Commands::Statusline => commands::statusline::run(),
+        }) => commands::uninstall::run(keep_store, purge_store),
+        Some(Commands::Statusline) => commands::statusline::run(),
     }
 }
 
@@ -116,7 +118,7 @@ mod tests {
             .unwrap();
 
         match cli.command {
-            Commands::Hook { event, agent } => {
+            Some(Commands::Hook { event, agent }) => {
                 assert_eq!(event, "session-start");
                 assert_eq!(agent, AgentArg::Codex);
             }
@@ -128,27 +130,41 @@ mod tests {
     fn parses_dashboard_command() {
         let cli = Cli::try_parse_from(["ai-handoff", "dashboard"]).unwrap();
 
-        assert!(matches!(cli.command, Commands::Dashboard));
+        assert!(matches!(cli.command, Some(Commands::Dashboard)));
+    }
+
+    #[test]
+    fn parses_no_command_for_tui_default() {
+        let cli = Cli::try_parse_from(["ai-handoff"]).unwrap();
+
+        assert!(cli.command.is_none());
+    }
+
+    #[test]
+    fn parses_tui_command() {
+        let cli = Cli::try_parse_from(["ai-handoff", "tui"]).unwrap();
+
+        assert!(matches!(cli.command, Some(Commands::Tui)));
     }
 
     #[test]
     fn parses_statusline_command() {
         let cli = Cli::try_parse_from(["ai-handoff", "statusline"]).unwrap();
 
-        assert!(matches!(cli.command, Commands::Statusline));
+        assert!(matches!(cli.command, Some(Commands::Statusline)));
     }
 
     #[test]
     fn install_defaults_to_plugin_mode_and_accepts_no_plugin_flag() {
         let default = Cli::try_parse_from(["ai-handoff", "install"]).unwrap();
         match default.command {
-            Commands::Install { no_plugin, .. } => assert!(!no_plugin),
+            Some(Commands::Install { no_plugin, .. }) => assert!(!no_plugin),
             other => panic!("unexpected command: {other:?}"),
         }
 
         let legacy = Cli::try_parse_from(["ai-handoff", "install", "--no-plugin"]).unwrap();
         match legacy.command {
-            Commands::Install { no_plugin, .. } => assert!(no_plugin),
+            Some(Commands::Install { no_plugin, .. }) => assert!(no_plugin),
             other => panic!("unexpected command: {other:?}"),
         }
     }

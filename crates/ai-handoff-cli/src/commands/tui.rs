@@ -31,11 +31,12 @@ pub fn run_io(snapshot: &DashboardSnapshot, out: &mut dyn Write) -> anyhow::Resu
     writeln!(out, "Usage")?;
     writeln!(
         out,
-        "  token usage index is not installed yet; build ai-handoff-usage next"
+        "  ai-handoff usage shows estimated token usage (day/model/project)"
     )?;
     writeln!(out)?;
     writeln!(out, "Next")?;
     writeln!(out, "  ai-handoff --help shows subcommands")?;
+    writeln!(out, "  ai-handoff usage --group-by model breaks down tokens")?;
     writeln!(out, "  ai-handoff dashboard opens the optional GUI")?;
     Ok(0)
 }
@@ -69,7 +70,7 @@ mod tests {
         assert!(text.contains("Terminal dashboard"));
         assert!(text.contains("Capsules"));
         assert!(text.contains("Health"));
-        assert!(text.contains("token usage index is not installed yet"));
+        assert!(text.contains("ai-handoff usage shows estimated token usage"));
         assert!(text.contains("ai-handoff --help"));
     }
 }

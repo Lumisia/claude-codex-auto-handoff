@@ -10,3 +10,4 @@ pub mod launcher;
 pub mod statusline;
 pub mod tui;
 pub mod uninstall;
+pub mod usage;

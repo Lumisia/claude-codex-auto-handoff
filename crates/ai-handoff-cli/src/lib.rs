@@ -53,6 +53,35 @@ pub enum Commands {
         #[command(subcommand)]
         action: ConfigAction,
     },
+    /// Show estimated token usage from local Claude + Codex logs.
+    Usage {
+        /// Break down by this dimension instead of the default summary.
+        #[arg(long, value_enum)]
+        group_by: Option<GroupByArg>,
+        /// Restrict to one agent.
+        #[arg(long, value_enum)]
+        source: Option<SourceArg>,
+        /// Only count usage on or after this day (YYYY-MM-DD).
+        #[arg(long)]
+        since: Option<String>,
+        /// Emit JSON instead of text.
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
+pub enum GroupByArg {
+    Day,
+    Model,
+    Project,
+    Source,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
+pub enum SourceArg {
+    Claude,
+    Codex,
 }
 
 #[derive(Debug, Subcommand)]
@@ -120,6 +149,12 @@ pub fn run_cli(cli: Cli) -> anyhow::Result<i32> {
         }) => commands::uninstall::run(keep_store, purge_store),
         Some(Commands::Statusline) => commands::statusline::run(),
         Some(Commands::Config { action }) => commands::config::run(action),
+        Some(Commands::Usage {
+            group_by,
+            source,
+            since,
+            json,
+        }) => commands::usage::run(group_by, source, since, json),
     }
 }
 
@@ -203,6 +238,48 @@ mod tests {
             list.command,
             Some(Commands::Config {
                 action: ConfigAction::List
+            })
+        ));
+    }
+
+    #[test]
+    fn parses_usage_with_flags() {
+        let cli = Cli::try_parse_from([
+            "ai-handoff",
+            "usage",
+            "--group-by",
+            "model",
+            "--source",
+            "codex",
+            "--since",
+            "2026-06-25",
+            "--json",
+        ])
+        .unwrap();
+        match cli.command {
+            Some(Commands::Usage {
+                group_by,
+                source,
+                since,
+                json,
+            }) => {
+                assert_eq!(group_by, Some(GroupByArg::Model));
+                assert_eq!(source, Some(SourceArg::Codex));
+                assert_eq!(since.as_deref(), Some("2026-06-25"));
+                assert!(json);
+            }
+            other => panic!("unexpected command: {other:?}"),
+        }
+
+        // Bare `usage` defaults everything to None/false.
+        let bare = Cli::try_parse_from(["ai-handoff", "usage"]).unwrap();
+        assert!(matches!(
+            bare.command,
+            Some(Commands::Usage {
+                group_by: None,
+                source: None,
+                since: None,
+                json: false
             })
         ));
     }

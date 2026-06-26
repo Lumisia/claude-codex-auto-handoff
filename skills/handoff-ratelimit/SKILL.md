@@ -19,17 +19,23 @@ To install or refresh it:
     ai-handoff install
     aho install
 
-## Checking usage from the CLI (coming in this release)
+## Checking token usage from the CLI
 
-Two commands are landing in this release:
+`ai-handoff usage` estimates token usage by scanning your local Claude and Codex logs
+(read-only) and prints totals plus an approximate cost. It is a **local estimate, not an
+official bill or quota**.
 
-    ai-handoff usage       # token usage so far in the current 5-hour window
-    ai-handoff limits      # local estimate of remaining quota
+    ai-handoff usage                          # summary: total tokens + est cost, per agent
+    ai-handoff usage --group-by day           # break down by day
+    ai-handoff usage --group-by model         # by model
+    ai-handoff usage --group-by project       # by project
+    ai-handoff usage --source codex --since 2026-06-01
+    ai-handoff usage --json                   # machine-readable
 
-These are not available yet. Until they land, check the statusline indicator or open the
-dashboard:
+`ai-handoff limits` (local estimate of remaining 5-hour quota) is still coming in a later
+release. For the live 5-hour-window level, use the statusline indicator or the dashboard:
 
-    ai-handoff dashboard   # GUI view with usage history
+    ai-handoff dashboard   # GUI view
 
 ## Automatic handoff modes
 

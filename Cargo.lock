@@ -24,6 +24,7 @@ dependencies = [
  "ai-handoff-core",
  "ai-handoff-daemon",
  "ai-handoff-ipc",
+ "ai-handoff-usage",
  "anyhow",
  "chrono",
  "clap",

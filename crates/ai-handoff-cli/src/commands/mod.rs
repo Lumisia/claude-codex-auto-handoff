@@ -6,4 +6,5 @@ pub mod doctor;
 pub mod hook;
 pub mod install;
 pub mod launcher;
+pub mod statusline;
 pub mod uninstall;

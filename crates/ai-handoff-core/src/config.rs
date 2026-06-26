@@ -16,7 +16,21 @@ use crate::trigger::{BurnRate, TriggerMode};
 pub struct Config {
     pub triggers: Triggers,
     pub autostart: Autostart,
+    pub statusline: Statusline,
     pub project_overrides: HashMap<String, ProjectOverride>,
+}
+
+/// Statusline display options. Opt-in: defaults to enabled (`show = true`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(default)]
+pub struct Statusline {
+    pub show: bool,
+}
+
+impl Default for Statusline {
+    fn default() -> Self {
+        Self { show: true }
+    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]
@@ -336,5 +350,19 @@ mod tests {
         let p = dir.path().join("config.toml");
         std::fs::write(&p, "[triggers.five_hour]\nthreshold_percent = 42\n").unwrap();
         assert_eq!(load_from(&p).triggers.five_hour.threshold_percent, 42.0);
+    }
+
+    #[test]
+    fn statusline_defaults_to_show_true() {
+        assert!(parse("").unwrap().statusline.show);
+        assert!(Config::default().statusline.show);
+    }
+
+    #[test]
+    fn statusline_show_false_parses() {
+        let c = parse("[statusline]\nshow = false\n").unwrap();
+        assert!(!c.statusline.show);
+        // unrelated sections still default
+        assert_eq!(c.triggers.five_hour.threshold_percent, 80.0);
     }
 }

@@ -43,6 +43,7 @@ pub enum Commands {
         #[arg(long)]
         purge_store: bool,
     },
+    Statusline,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
@@ -95,6 +96,7 @@ pub fn run_cli(cli: Cli) -> anyhow::Result<i32> {
             keep_store,
             purge_store,
         } => commands::uninstall::run(keep_store, purge_store),
+        Commands::Statusline => commands::statusline::run(),
     }
 }
 
@@ -122,5 +124,12 @@ mod tests {
         let cli = Cli::try_parse_from(["ai-handoff", "dashboard"]).unwrap();
 
         assert!(matches!(cli.command, Commands::Dashboard));
+    }
+
+    #[test]
+    fn parses_statusline_command() {
+        let cli = Cli::try_parse_from(["ai-handoff", "statusline"]).unwrap();
+
+        assert!(matches!(cli.command, Commands::Statusline));
     }
 }

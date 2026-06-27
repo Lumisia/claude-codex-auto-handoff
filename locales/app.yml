@@ -1,0 +1,63 @@
+_version: 2
+
+# ── Tabs ────────────────────────────────────────────────────────────────
+tab.overview:
+  en: Overview
+  ko: 개요
+  ja: 概要
+  zh: 概览
+tab.capsule:
+  en: Capsule
+  ko: 캡슐
+  ja: カプセル
+  zh: 胶囊
+tab.usage:
+  en: Usage
+  ko: 사용량
+  ja: 使用量
+  zh: 用量
+tab.settings:
+  en: Settings
+  ko: 설정
+  ja: 設定
+  zh: 设置
+
+# ── Status-bar hints ────────────────────────────────────────────────────
+hint.default:
+  en: "q/Esc back · Tab/1-4 or ←/→ switch tab · ↓/Space/Enter open tab"
+  ko: "q/Esc 뒤로 · Tab/1-4 또는 ←/→ 탭 전환 · ↓/Space/Enter 탭 열기"
+  ja: "q/Esc 戻る · Tab/1-4 または ←/→ タブ切替 · ↓/Space/Enter タブを開く"
+  zh: "q/Esc 返回 · Tab/1-4 或 ←/→ 切换标签 · ↓/Space/Enter 打开标签"
+hint.quit:
+  en: "Quit? Press q/Esc again to quit"
+  ko: "종료하시겠습니까? 한 번 더 q/Esc 누르면 종료됩니다"
+  ja: "終了しますか？もう一度 q/Esc で終了します"
+  zh: "要退出吗？再次按 q/Esc 退出"
+
+hint.capsule_tree:
+  en: "↑/↓ move · Enter/→ expand or open capsule · ← collapse · q/Esc back"
+  ko: "↑/↓ 이동 · Enter/→ 펼치기/캡슐 열기 · ← 접기 · q/Esc 뒤로"
+  ja: "↑/↓ 移動 · Enter/→ 展開/カプセルを開く · ← 折りたたみ · q/Esc 戻る"
+  zh: "↑/↓ 移动 · Enter/→ 展开/打开胶囊 · ← 折叠 · q/Esc 返回"
+hint.capsule_detail:
+  en: "↑/↓ pick field · Enter/e edit · s toggle state · d delete · ← back to list"
+  ko: "↑/↓ 필드 선택 · Enter/e 편집 · s 상태 전환 · d 삭제 · ← 목록으로"
+  ja: "↑/↓ フィールド選択 · Enter/e 編集 · s 状態切替 · d 削除 · ← 一覧へ"
+  zh: "↑/↓ 选择字段 · Enter/e 编辑 · s 切换状态 · d 删除 · ← 返回列表"
+hint.usage:
+  en: "g cycle breakdown · q/Esc back"
+  ko: "g 분류 전환 · q/Esc 뒤로"
+  ja: "g 内訳を切替 · q/Esc 戻る"
+  zh: "g 切换分类 · q/Esc 返回"
+hint.settings:
+  en: "↑/↓ select · space toggle · ←/→ change · q/Esc back"
+  ko: "↑/↓ 선택 · Space 토글 · ←/→ 변경 · q/Esc 뒤로"
+  ja: "↑/↓ 選択 · Space 切替 · ←/→ 変更 · q/Esc 戻る"
+  zh: "↑/↓ 选择 · Space 切换 · ←/→ 修改 · q/Esc 返回"
+
+# ── Status messages ─────────────────────────────────────────────────────
+status.saved:
+  en: "saved %{key} = %{value}"
+  ko: "저장됨 %{key} = %{value}"
+  ja: "保存しました %{key} = %{value}"
+  zh: "已保存 %{key} = %{value}"

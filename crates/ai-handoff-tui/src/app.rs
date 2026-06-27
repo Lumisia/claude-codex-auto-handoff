@@ -22,6 +22,8 @@ use ratatui::{
     DefaultTerminal, Frame,
 };
 
+use rust_i18n::t;
+
 use ai_handoff_core::dashboard::{CheckStatus, DashboardSnapshot};
 use ai_handoff_usage::{aggregate::Group, Dimension};
 
@@ -41,12 +43,13 @@ pub enum Tab {
 
 impl Tab {
     const ALL: [Tab; 4] = [Tab::Overview, Tab::Capsule, Tab::Usage, Tab::Settings];
-    fn title(self) -> &'static str {
+    /// Translation key for the tab's title (resolved at render time via `t!`).
+    fn title_key(self) -> &'static str {
         match self {
-            Tab::Overview => "Overview",
-            Tab::Capsule => "Capsule",
-            Tab::Usage => "Usage",
-            Tab::Settings => "Settings",
+            Tab::Overview => "tab.overview",
+            Tab::Capsule => "tab.capsule",
+            Tab::Usage => "tab.usage",
+            Tab::Settings => "tab.settings",
         }
     }
     fn index(self) -> usize {
@@ -76,10 +79,15 @@ fn dim_name(dim: Dimension) -> &'static str {
     }
 }
 
-const DEFAULT_HINT: &str =
-    "q/Esc back · Tab/1-4 or ←/→ switch tab · ↓/Space/Enter open tab";
-const QUIT_HINT: &str =
-    "종료하시겠습니까? 한 번 더 q/Esc 누르면 종료됩니다 (press q/Esc again to quit)";
+/// The default status-bar hint, in the active language.
+fn default_hint() -> String {
+    t!("hint.default").into_owned()
+}
+
+/// The quit-confirmation hint, in the active language.
+fn quit_hint() -> String {
+    t!("hint.quit").into_owned()
+}
 
 /// Claude = orange, Codex = purple (the token-split donut + legend).
 const CLAUDE_COLOR: Color = Color::Rgb(230, 140, 30);
@@ -197,7 +205,7 @@ impl App {
             cap_confirm_delete: false,
             cap_edit_buf: String::new(),
             cap_detail: None,
-            status: DEFAULT_HINT.to_string(),
+            status: default_hint(),
             should_quit: false,
             confirm_quit: false,
         }
@@ -239,7 +247,7 @@ impl App {
         // Any other key disarms a pending quit confirmation.
         if self.confirm_quit {
             self.confirm_quit = false;
-            self.status = DEFAULT_HINT.to_string();
+            self.status = default_hint();
         }
         // Tab / Shift-Tab / number keys switch tabs from either level and land
         // back on the tab bar (so each tab is re-entered explicitly).
@@ -276,24 +284,22 @@ impl App {
         self.tab = target;
         self.focus_content = false;
         self.confirm_quit = false;
-        self.status = DEFAULT_HINT.to_string();
+        self.status = default_hint();
     }
 
     /// Descend from the tab bar into the current tab's content.
     fn enter_content(&mut self) {
         self.focus_content = true;
         self.status = match self.tab {
-            Tab::Overview => DEFAULT_HINT.to_string(),
+            Tab::Overview => default_hint(),
             Tab::Capsule => {
                 self.cap_focus = CapFocus::Tree;
                 self.cap_confirm_delete = false;
                 self.cap_load_content();
-                "↑/↓ move · Enter/→ expand or open capsule · ← collapse · q/Esc back".to_string()
+                t!("hint.capsule_tree").into_owned()
             }
-            Tab::Usage => "g cycle breakdown · q/Esc back".to_string(),
-            Tab::Settings => {
-                "↑/↓ select · space toggle · ←/→ change · q/Esc back".to_string()
-            }
+            Tab::Usage => t!("hint.usage").into_owned(),
+            Tab::Settings => t!("hint.settings").into_owned(),
         };
     }
 
@@ -303,14 +309,14 @@ impl App {
         if self.focus_content {
             self.focus_content = false;
             self.confirm_quit = false;
-            self.status = DEFAULT_HINT.to_string();
+            self.status = default_hint();
             return;
         }
         if self.confirm_quit {
             self.should_quit = true;
         } else {
             self.confirm_quit = true;
-            self.status = QUIT_HINT.to_string();
+            self.status = quit_hint();
         }
     }
 
@@ -370,8 +376,13 @@ impl App {
         }
         match edit::commit(&self.config_path, row.key, &raw) {
             Ok(_) => {
+                // Language takes effect immediately: switch the global locale so
+                // the next frame renders translated.
+                if row.key == "language" {
+                    rust_i18n::set_locale(&raw);
+                }
                 self.settings[self.settings_idx].value = raw.clone();
-                self.status = format!("saved {} = {}", row.key, raw);
+                self.status = t!("status.saved", key = row.key, value = raw).into_owned();
             }
             Err(e) => self.status = format!("{}: {e}", row.key),
         }
@@ -444,9 +455,7 @@ impl App {
         self.cap_field = 0;
         self.cap_confirm_delete = false;
         self.cap_load_content();
-        self.status =
-            "↑/↓ pick field · Enter/e edit · s toggle state · d delete · ← back to list"
-                .to_string();
+        self.status = t!("hint.capsule_detail").into_owned();
     }
 
     /// Keys while the right detail pane has focus (action bar + body).
@@ -485,8 +494,7 @@ impl App {
     fn cap_focus_tree(&mut self) {
         self.cap_focus = CapFocus::Tree;
         self.cap_confirm_delete = false;
-        self.status =
-            "↑/↓ move · Enter/→ expand or open capsule · ← collapse · q/Esc back".to_string();
+        self.status = t!("hint.capsule_tree").into_owned();
     }
 
     /// Keys while editing the selected capsule field.
@@ -704,7 +712,9 @@ impl App {
     }
 
     fn draw_tabs(&self, f: &mut Frame, area: Rect) {
-        let titles = Tab::ALL.iter().map(|t| Line::from(t.title()));
+        let titles = Tab::ALL
+            .iter()
+            .map(|tab| Line::from(t!(tab.title_key()).into_owned()));
         let tabs = Tabs::new(titles)
             .select(self.tab.index())
             .block(Block::default().borders(Borders::ALL).title("AI Handoff"))
@@ -1359,7 +1369,8 @@ mod tests {
         app.on_key(key(KeyCode::Char('q')));
         assert!(!app.should_quit(), "first q must only arm");
         assert!(app.confirm_quit);
-        assert!(app.status.contains("종료"));
+        // language-neutral: status shows the quit hint (whatever the locale)
+        assert_eq!(app.status, quit_hint());
         app.on_key(key(KeyCode::Char('q')));
         assert!(app.should_quit(), "second q quits");
     }
@@ -1455,6 +1466,18 @@ mod tests {
     }
 
     #[test]
+    fn tab_titles_translate_with_locale() {
+        rust_i18n::set_locale("ko");
+        assert_eq!(t!("tab.overview"), "개요");
+        rust_i18n::set_locale("ja");
+        assert_eq!(t!("tab.usage"), "使用量");
+        rust_i18n::set_locale("zh");
+        assert_eq!(t!("tab.settings"), "设置");
+        rust_i18n::set_locale("en");
+        assert_eq!(t!("tab.capsule"), "Capsule");
+    }
+
+    #[test]
     fn tab_cycles_forward_and_number_keys_jump() {
         let mut app = test_app();
         assert_eq!(app.tab, Tab::Overview);
@@ -1509,7 +1532,8 @@ mod tests {
         let first_key = app.settings[0].key;
         app.on_key(key(KeyCode::Char(' ')));
         assert_eq!(app.settings[0].value, "false");
-        assert!(app.status.contains("saved"));
+        // language-neutral: the saved status interpolates the key in any locale
+        assert!(app.status.contains(first_key));
         // the write actually landed
         let cfg = ai_handoff_core::config::load_from(&app.config_path);
         let val = ai_handoff_core::config::get_value(&cfg, first_key).unwrap();

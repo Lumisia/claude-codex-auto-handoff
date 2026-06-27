@@ -75,6 +75,33 @@ fn default_hint() -> String {
     t!("hint.default").into_owned()
 }
 
+/// A one-line description of a setting key (shown in the status bar while
+/// browsing Settings), or empty for an unknown key.
+fn setting_desc(key: &str) -> String {
+    let desc_key = match key {
+        "triggers.five_hour.enabled" => "setting.five_hour_enabled",
+        "triggers.five_hour.threshold_percent" => "setting.threshold",
+        "triggers.five_hour.mode" => "setting.mode",
+        "triggers.five_hour.burn_rate.enabled" => "setting.burn_enabled",
+        "triggers.five_hour.burn_rate.runway_minutes" => "setting.runway",
+        "autostart.enabled" => "setting.autostart",
+        "statusline.show" => "setting.statusline",
+        "language" => "setting.language",
+        _ => return String::new(),
+    };
+    t!(desc_key).into_owned()
+}
+
+/// The description for `key`, or the generic Settings hint when there is none.
+fn setting_desc_or_hint(key: Option<&str>) -> String {
+    let desc = key.map(setting_desc).unwrap_or_default();
+    if desc.is_empty() {
+        t!("hint.settings").into_owned()
+    } else {
+        desc
+    }
+}
+
 /// The quit-confirmation hint, in the active language.
 fn quit_hint() -> String {
     t!("hint.quit").into_owned()
@@ -290,7 +317,7 @@ impl App {
                 t!("hint.capsule_tree").into_owned()
             }
             Tab::Usage => t!("hint.usage").into_owned(),
-            Tab::Settings => t!("hint.settings").into_owned(),
+            Tab::Settings => setting_desc_or_hint(self.settings.first().map(|r| r.key)),
         };
     }
 
@@ -324,11 +351,13 @@ impl App {
                 if self.settings_idx > 0 {
                     self.settings_idx -= 1;
                 }
+                self.show_setting_desc();
             }
             KeyCode::Down | KeyCode::Char('j') => {
                 if self.settings_idx + 1 < self.settings.len() {
                     self.settings_idx += 1;
                 }
+                self.show_setting_desc();
             }
             KeyCode::Char(' ') => self.edit_current(EditAction::Toggle),
             KeyCode::Right | KeyCode::Char('+') | KeyCode::Char('=') => {
@@ -336,6 +365,13 @@ impl App {
             }
             KeyCode::Left | KeyCode::Char('-') => self.edit_current(EditAction::Prev),
             _ => {}
+        }
+    }
+
+    /// Put the selected setting's description in the status bar.
+    fn show_setting_desc(&mut self) {
+        if let Some(row) = self.settings.get(self.settings_idx) {
+            self.status = setting_desc(row.key);
         }
     }
 
@@ -1620,6 +1656,21 @@ mod tests {
         let cfg = ai_handoff_core::config::load_from(&app.config_path);
         let val = ai_handoff_core::config::get_value(&cfg, first_key).unwrap();
         assert_eq!(val, "false");
+    }
+
+    #[test]
+    fn settings_status_shows_selected_description() {
+        rust_i18n::set_locale("en");
+        let mut app = test_app();
+        app.on_key(key(KeyCode::Char('4'))); // -> Settings tab bar
+        app.on_key(key(KeyCode::Down)); // descend; status = desc of row 0
+        assert!(app.focus_content);
+        assert_eq!(app.settings_idx, 0);
+        assert_eq!(app.status, setting_desc(app.settings[0].key));
+        assert!(!app.status.is_empty());
+        app.on_key(key(KeyCode::Down)); // move to row 1; description updates
+        assert_eq!(app.settings_idx, 1);
+        assert_eq!(app.status, setting_desc(app.settings[1].key));
     }
 
     #[test]

@@ -248,6 +248,48 @@ dim.source:
   ja: ソース
   zh: 来源
 
+# ── Settings descriptions (shown in the status bar while browsing) ──────
+setting.five_hour_enabled:
+  en: "Turn the 5-hour rate-limit trigger on or off"
+  ko: "5시간 사용량 한도 트리거 켜기/끄기"
+  ja: "5時間レート制限トリガーのオン/オフ"
+  zh: "开启或关闭 5 小时速率限制触发"
+setting.threshold:
+  en: "Fire when usage reaches this percent of the 5-hour limit"
+  ko: "5시간 한도의 이 퍼센트에 도달하면 트리거"
+  ja: "5時間制限のこの割合に達したら発火"
+  zh: "用量达到 5 小时限额的此百分比时触发"
+setting.mode:
+  en: "On trigger: off (nothing) · ask (confirm) · auto (act)"
+  ko: "트리거 시: off(아무것도) · ask(확인) · auto(자동)"
+  ja: "トリガー時: off(何もしない) · ask(確認) · auto(自動)"
+  zh: "触发时: off(不做) · ask(确认) · auto(自动)"
+setting.burn_enabled:
+  en: "Also trigger based on how fast the budget is burning"
+  ko: "예산 소진 속도 기준으로도 트리거"
+  ja: "予算の消費速度でもトリガー"
+  zh: "也根据预算消耗速度触发"
+setting.runway:
+  en: "Fire when fewer than this many minutes of runway remain"
+  ko: "남은 여유가 이 분(分) 미만이면 트리거"
+  ja: "残り猶予がこの分数未満で発火"
+  zh: "剩余可用时间少于此分钟数时触发"
+setting.autostart:
+  en: "Run the daemon automatically at logon"
+  ko: "로그온 시 데몬 자동 실행"
+  ja: "ログオン時にデーモンを自動起動"
+  zh: "登录时自动运行守护进程"
+setting.statusline:
+  en: "Show the AI Handoff status line inside the agent"
+  ko: "에이전트 안에 AI Handoff 상태줄 표시"
+  ja: "エージェント内に AI Handoff ステータス行を表示"
+  zh: "在代理中显示 AI Handoff 状态行"
+setting.language:
+  en: "Dashboard language (en / ko / ja / zh)"
+  ko: "대시보드 언어 (en / ko / ja / zh)"
+  ja: "ダッシュボードの言語 (en / ko / ja / zh)"
+  zh: "仪表盘语言 (en / ko / ja / zh)"
+
 # ── Settings tab ────────────────────────────────────────────────────────
 settings.title:
   en: "Settings (↑/↓ select · space toggle · ←/→ change · applies to both agents)"

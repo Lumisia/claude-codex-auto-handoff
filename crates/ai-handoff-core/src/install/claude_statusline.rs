@@ -14,7 +14,12 @@ use super::state::ClaudeStatuslineState;
 
 /// The `statusLine.command` string we install, pointing at our own exe.
 pub fn installed_command(exe: &str) -> String {
+    let exe = exe.replace('\\', "/");
     format!("\"{exe}\" statusline")
+}
+
+pub(super) fn command_matches_installed(current: &str, installed: &str) -> bool {
+    current == installed || current.replace('\\', "/") == installed
 }
 
 /// Outcome of [`apply`], carrying what the caller needs to record into state.
@@ -49,7 +54,7 @@ pub fn apply(existing: Option<&str>, exe: &str) -> serde_json::Result<(String, A
         .as_ref()
         .and_then(|sl| sl.get("command"))
         .and_then(Value::as_str)
-        == Some(command.as_str());
+        .is_some_and(|current_command| command_matches_installed(current_command, &command));
 
     // `previous` is what we'd restore on uninstall: nothing when it was already
     // ours (caller keeps the older recorded value), otherwise whatever foreign
@@ -89,7 +94,9 @@ pub fn remove(existing: &str, recorded: &ClaudeStatuslineState) -> serde_json::R
         .get("statusLine")
         .and_then(|sl| sl.get("command"))
         .and_then(Value::as_str)
-        == Some(recorded.installed_command.as_str());
+        .is_some_and(|current_command| {
+            command_matches_installed(current_command, &recorded.installed_command)
+        });
 
     if current_is_ours {
         match &recorded.previous {
@@ -112,6 +119,25 @@ mod tests {
     use super::*;
 
     const EXE: &str = "C:\\p\\ai-handoff.exe";
+
+    #[test]
+    fn installed_command_uses_forward_slashes_for_windows_paths() {
+        assert_eq!(
+            installed_command("C:\\Users\\PC\\Desktop\\ai-handoff\\target\\release\\ai-handoff.exe"),
+            "\"C:/Users/PC/Desktop/ai-handoff/target/release/ai-handoff.exe\" statusline"
+        );
+    }
+
+    #[test]
+    fn apply_treats_backslash_variant_as_ours() {
+        let previous_install = r#"{"statusLine":{"type":"command","command":"\"C:\\p\\ai-handoff.exe\" statusline"}}"#;
+        let (json_str, a) = apply(Some(previous_install), EXE).unwrap();
+        let v: Value = serde_json::from_str(&json_str).unwrap();
+
+        assert!(a.current_was_ours);
+        assert!(a.previous.is_none());
+        assert_eq!(v["statusLine"]["command"], installed_command(EXE));
+    }
 
     #[test]
     fn apply_with_no_statusline_sets_ours_and_previous_none() {

@@ -195,6 +195,25 @@ fn write_text_atomic(path: &Path, after: &str) -> std::io::Result<()> {
     replace_with_temp(&tmp, path)
 }
 
+fn remove_managed_statusline_previous(
+    previous: Option<serde_json::Value>,
+    installed_command: &str,
+) -> Option<serde_json::Value> {
+    match previous {
+        Some(value)
+            if value
+                .get("command")
+                .and_then(serde_json::Value::as_str)
+                .is_some_and(|command| {
+                    claude_statusline::command_matches_installed(command, installed_command)
+                }) =>
+        {
+            None
+        }
+        other => other,
+    }
+}
+
 /// Apply the install to disk and persist an [`InstallState`].
 ///
 /// Ordering matters for the never-clobber guarantee: we compute the **entire**
@@ -357,13 +376,18 @@ pub fn apply_install(
         // (current_was_ours), `apply` reports no foreign previous, so keep the
         // one we recorded on the first install; otherwise record the freshly
         // captured foreign value.
+        let installed_command = sl_apply.installed_command;
+        let previous = if sl_apply.current_was_ours {
+            prior.claude.statusline.and_then(|s| {
+                remove_managed_statusline_previous(s.previous, &installed_command)
+            })
+        } else {
+            remove_managed_statusline_previous(sl_apply.previous, &installed_command)
+        };
+
         st.claude.statusline = Some(ClaudeStatuslineState {
-            previous: if sl_apply.current_was_ours {
-                prior.claude.statusline.and_then(|s| s.previous)
-            } else {
-                sl_apply.previous
-            },
-            installed_command: sl_apply.installed_command,
+            previous,
+            installed_command,
         });
     }
 
@@ -659,6 +683,43 @@ mod tests {
         assert_eq!(restored["statusLine"]["padding"], 1);
         assert_eq!(restored["model"], "opus");
         assert!(restored.get("hooks").is_none());
+    }
+
+    #[test]
+    fn reinstall_drops_previous_when_it_is_our_backslash_statusline() {
+        let dir = tempfile::tempdir().unwrap();
+        let uh = dir.path();
+        std::fs::create_dir_all(uh.join(".claude")).unwrap();
+        std::fs::write(
+            uh.join(".claude/settings.json"),
+            r#"{"model":"opus","statusLine":{"type":"command","command":"\"C:/p/ai-handoff.exe\" statusline","refreshInterval":15}}"#,
+        )
+        .unwrap();
+        let ai_home = uh.join("ai-home");
+        let t = targets_for(
+            uh,
+            &ai_home,
+            &ai_home.join("ipc"),
+            std::path::Path::new("C:/p/ai-handoff.exe"),
+        );
+        let mut prior = InstallState::default();
+        prior.claude.statusline = Some(ClaudeStatuslineState {
+            previous: Some(serde_json::json!({
+                "type": "command",
+                "command": "\"C:\\p\\ai-handoff.exe\" statusline",
+                "refreshInterval": 15
+            })),
+            installed_command: "\"C:/p/ai-handoff.exe\" statusline".into(),
+        });
+        state::save(&ai_home, &prior).unwrap();
+        let agents = AgentPresence {
+            codex: false,
+            claude: true,
+        };
+
+        let st = apply_install(&t, &agents, Utc::now(), false).unwrap();
+
+        assert!(st.claude.statusline.as_ref().unwrap().previous.is_none());
     }
 
     #[test]

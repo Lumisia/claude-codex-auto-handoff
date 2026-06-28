@@ -674,6 +674,16 @@ status.account_switched:
   ko: "%{label} 로 전환됨 — 적용하려면 Codex/Claude 재시작"
   ja: "%{label} に切替 — 反映には Codex/Claude を再起動"
   zh: "已切换到 %{label} — 重启 Codex/Claude 后生效"
+status.account_switched_running:
+  en: "switched to %{label} — a session is running; restart it to apply"
+  ko: "%{label} 로 전환됨 — 실행 중인 세션이 있음, 재시작해야 적용됨"
+  ja: "%{label} に切替 — 実行中のセッションあり、再起動で反映"
+  zh: "已切换到 %{label} — 有正在运行的会话，重启后生效"
+status.account_switched_managed:
+  en: "switched to %{label} (managed account) — restart; a forced workspace policy may sign you out"
+  ko: "%{label} 로 전환됨 (관리형 계정) — 재시작 필요, 강제 workspace 정책 시 로그아웃될 수 있음"
+  ja: "%{label} に切替（管理アカウント）— 再起動。強制ワークスペース設定でログアウトの可能性"
+  zh: "已切换到 %{label}（受管账户）— 重启；强制工作区策略可能导致登出"
 status.account_switch_failed:
   en: "switch failed: %{err}"
   ko: "전환 실패: %{err}"

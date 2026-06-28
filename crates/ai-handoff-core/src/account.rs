@@ -535,6 +535,14 @@ fn claude_identity_from_dir(dir: &Path) -> Option<Identity> {
 /// surgically update `~/.claude.json` `oauthAccount` so the shown account
 /// matches — the rest of that large shared config is left intact.
 pub fn switch_slot(agent: Agent, label: &str) -> std::io::Result<()> {
+    // macOS Claude keeps its token in the Keychain, not the file — a file swap
+    // would not change the live login. Guard until a Keychain adapter exists.
+    #[cfg(target_os = "macos")]
+    if agent == Agent::Claude && live_auth_path(agent).map(|p| !p.exists()).unwrap_or(false) {
+        return Err(std::io::Error::other(
+            "macOS Claude stores credentials in the Keychain; file switch isn't supported yet — use launch (l)",
+        ));
+    }
     let dir = slot_dir(agent, label);
     let bytes = std::fs::read(dir.join(cred_filename(agent)))?;
     let live = live_auth_path(agent).ok_or_else(|| std::io::Error::other("no home dir"))?;
@@ -570,6 +578,49 @@ fn patch_claude_oauth_account(email: Option<String>) -> std::io::Result<()> {
     }
     let json = serde_json::to_vec_pretty(&value).map_err(std::io::Error::other)?;
     atomic_write(&path, &json)
+}
+
+// ---------------------------------------------------------------------------
+// Running-session detection (warn before a live switch)
+// ---------------------------------------------------------------------------
+
+/// Best-effort: is the agent's CLI/app currently running? A live credential
+/// switch while a session is open may leave that session on the old account, so
+/// the UI warns. Returns `false` if the process list can't be read.
+pub fn agent_running(agent: Agent) -> bool {
+    let marker = match agent {
+        Agent::Codex => "codex",
+        Agent::Claude => "claude",
+    };
+    running_process_names().iter().any(|n| n.contains(marker))
+}
+
+fn running_process_names() -> Vec<String> {
+    #[cfg(windows)]
+    let output = std::process::Command::new("tasklist")
+        .args(["/FO", "CSV", "/NH"])
+        .output();
+    #[cfg(not(windows))]
+    let output = std::process::Command::new("ps").args(["-A", "-o", "comm="]).output();
+    match output {
+        Ok(o) => parse_process_names(&String::from_utf8_lossy(&o.stdout).to_lowercase()),
+        Err(_) => Vec::new(),
+    }
+}
+
+/// Parse process names from the platform listing. Windows `tasklist` CSV has the
+/// image name as the first quoted field; `ps -o comm=` is one name per line.
+fn parse_process_names(text: &str) -> Vec<String> {
+    if cfg!(windows) {
+        text.lines()
+            .filter_map(|l| l.split('"').nth(1).map(str::to_string))
+            .collect()
+    } else {
+        text.lines()
+            .map(|l| l.trim().to_string())
+            .filter(|l| !l.is_empty())
+            .collect()
+    }
 }
 
 /// Remove a saved slot (its whole directory).
@@ -688,6 +739,16 @@ mod tests {
         });
         let id = identity_from_auth(&auth).expect("identity");
         assert_eq!(id.account_id.as_deref(), Some("explicit"));
+    }
+
+    #[test]
+    fn parse_process_names_reads_listing() {
+        // Windows tasklist CSV (already lowercased before parsing).
+        let csv = "\"codex.exe\",\"1234\",\"console\",\"1\",\"50,000 k\"\n\"explorer.exe\",\"42\",\"console\",\"1\",\"9 k\"\n";
+        // Unix `ps -o comm=` style.
+        let ps = "codex\nclaude\nbash\n";
+        let names = if cfg!(windows) { parse_process_names(csv) } else { parse_process_names(ps) };
+        assert!(names.iter().any(|n| n.contains("codex")));
     }
 
     #[test]

@@ -995,13 +995,27 @@ impl App {
         let Some((agent, i)) = self.acc_selected_slot() else {
             return;
         };
-        let label = self.account.agent(agent).slots[i].meta.label.clone();
+        let slot = &self.account.agent(agent).slots[i];
+        let label = slot.meta.label.clone();
+        // Managed (Business/Team/Enterprise) accounts: a forced workspace policy
+        // may log the agent out on switch — caution the user.
+        let plan = slot.meta.plan_hint.clone().unwrap_or_default().to_lowercase();
+        let managed = ["business", "team", "enterprise"].iter().any(|k| plan.contains(k));
+        // Warn (don't block) if a session is open — it may keep the old account.
+        let running = account::agent_running(agent);
         match account::switch_slot(agent, &label) {
             Ok(()) => {
                 // The live account changed — the cached credit count is stale.
                 self.acc_credits = CreditsState::Idle;
                 self.reload_account();
-                self.status = t!("status.account_switched", label = label).into_owned();
+                self.status = if managed {
+                    t!("status.account_switched_managed", label = label)
+                } else if running {
+                    t!("status.account_switched_running", label = label)
+                } else {
+                    t!("status.account_switched", label = label)
+                }
+                .into_owned();
             }
             Err(e) => {
                 self.status = t!("status.account_switch_failed", err = e.to_string()).into_owned()

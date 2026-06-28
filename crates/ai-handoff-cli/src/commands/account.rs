@@ -80,6 +80,8 @@ fn doctor(json: bool) -> anyhow::Result<i32> {
     let claude_slots = account::list_slots(Agent::Claude).len();
     let codex_cli = account::which("codex").is_some();
     let claude_cli = account::which("claude").is_some();
+    let codex_running = account::agent_running(Agent::Codex);
+    let claude_running = account::agent_running(Agent::Claude);
 
     let mut warnings: Vec<String> = Vec::new();
     if !codex_cli {
@@ -97,16 +99,22 @@ fn doctor(json: bool) -> anyhow::Result<i32> {
 
     if json {
         let payload = serde_json::json!({
-            "codex": { "signed_in": codex_in, "saved_slots": codex_slots, "cli_on_path": codex_cli },
-            "claude": { "signed_in": claude_in, "saved_slots": claude_slots, "cli_on_path": claude_cli },
+            "codex": { "signed_in": codex_in, "saved_slots": codex_slots, "cli_on_path": codex_cli, "running": codex_running },
+            "claude": { "signed_in": claude_in, "saved_slots": claude_slots, "cli_on_path": claude_cli, "running": claude_running },
             "warnings": warnings,
         });
         println!("{}", serde_json::to_string_pretty(&payload)?);
         return Ok(if warnings.is_empty() { 0 } else { 1 });
     }
 
-    println!("Codex:  signed in: {}   saved: {codex_slots}   cli: {}", yn(codex_in), yn(codex_cli));
-    println!("Claude: signed in: {}   saved: {claude_slots}   cli: {}", yn(claude_in), yn(claude_cli));
+    println!(
+        "Codex:  signed in: {}   saved: {codex_slots}   cli: {}   running: {}",
+        yn(codex_in), yn(codex_cli), yn(codex_running)
+    );
+    println!(
+        "Claude: signed in: {}   saved: {claude_slots}   cli: {}   running: {}",
+        yn(claude_in), yn(claude_cli), yn(claude_running)
+    );
     if warnings.is_empty() {
         println!("\nOK — no problems found.");
         Ok(0)

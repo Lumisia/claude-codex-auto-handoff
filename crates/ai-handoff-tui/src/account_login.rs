@@ -28,9 +28,10 @@ pub fn add_account(agent: Agent) -> Result<String, String> {
         );
     }
     let (program, args, var) = login_command(agent);
-    let exe = account::which(program)
-        .ok_or_else(|| format!("`{program}` not found on PATH — install it first"))?;
-    let status = Command::new(exe)
+    if account::which(program).is_none() {
+        return Err(format!("`{program}` not found on PATH — install it first"));
+    }
+    let status = agent_command(program)
         .args(args)
         .env(var, &home)
         .status()
@@ -49,9 +50,10 @@ pub fn launch(agent: Agent, label: &str) -> Result<(), String> {
     let (var, home) = account::profile_env(agent, label);
     let _ = std::fs::create_dir_all(&home);
     let program = agent_program(agent);
-    let exe = account::which(program)
-        .ok_or_else(|| format!("`{program}` not found on PATH — install it first"))?;
-    Command::new(exe)
+    if account::which(program).is_none() {
+        return Err(format!("`{program}` not found on PATH — install it first"));
+    }
+    agent_command(program)
         .env(var, &home)
         .status()
         .map_err(|e| format!("could not launch `{program}`: {e}"))?;
@@ -70,6 +72,23 @@ fn agent_program(agent: Agent) -> &'static str {
     match agent {
         Agent::Codex => "codex",
         Agent::Claude => "claude",
+    }
+}
+
+/// Build a `Command` that runs `program`. On Windows the vendor CLIs are often
+/// `.cmd`/`.bat`/shell shims that `CreateProcess` refuses to run directly (os
+/// error 193), so go through `cmd /C`, which resolves PATH + PATHEXT. Elsewhere
+/// run the program directly.
+fn agent_command(program: &str) -> Command {
+    #[cfg(windows)]
+    {
+        let mut cmd = Command::new("cmd");
+        cmd.arg("/C").arg(program);
+        cmd
+    }
+    #[cfg(not(windows))]
+    {
+        Command::new(program)
     }
 }
 

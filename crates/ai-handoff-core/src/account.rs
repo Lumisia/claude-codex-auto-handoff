@@ -22,6 +22,7 @@
 use std::path::{Path, PathBuf};
 
 use base64::Engine;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 /// Which connected agent an account belongs to.
@@ -75,13 +76,34 @@ pub struct Identity {
     pub plan_type: Option<String>,
 }
 
-/// One saved credential snapshot in the pool.
-#[derive(Debug, Clone, PartialEq)]
-pub struct PoolSlot {
-    /// Display label (usually the account email), also the file stem.
+/// Persisted metadata for a saved account slot (`<slot>/account.json`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AccountMeta {
+    pub schema_version: u32,
+    pub agent: String,
     pub label: String,
-    pub path: PathBuf,
-    /// True when this snapshot's bytes match the live auth file.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub email: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plan_hint: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub account_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub created_at: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_verified_at: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+}
+
+/// One saved account slot: its metadata, on-disk directory (also usable as the
+/// agent's profile home), and whether it matches the live credential.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AccountSlot {
+    pub meta: AccountMeta,
+    pub dir: PathBuf,
     pub active: bool,
 }
 
@@ -302,48 +324,41 @@ pub fn claude_status() -> Option<AccountStatus> {
 }
 
 // ---------------------------------------------------------------------------
-// Credential pool (file-swap switch / delete / capture)
+// Credential vault (per-account slot dirs: metadata + credential)
+//
+// Layout: <AI_HANDOFF_HOME>/accounts/<agent>/<label>/{account.json, <cred>}
+// where <cred> is `auth.json` (Codex) or `.credentials.json` (Claude). The slot
+// dir doubles as the agent's profile home (`CODEX_HOME` / `CLAUDE_CONFIG_DIR`)
+// for the launch-profile mode.
 // ---------------------------------------------------------------------------
 
-const SNAP_EXT: &str = "authsnap";
+/// The live credential file name for an agent (what the agent reads on startup).
+fn cred_filename(agent: Agent) -> &'static str {
+    match agent {
+        Agent::Codex => "auth.json",
+        Agent::Claude => ".credentials.json",
+    }
+}
 
-fn pool_dir(agent: Agent) -> PathBuf {
+fn accounts_root(agent: Agent) -> PathBuf {
     crate::paths::home().join("accounts").join(agent.dir())
 }
 
-/// List the saved snapshots for an agent, marking which matches the live auth.
-pub fn list_slots(agent: Agent) -> Vec<PoolSlot> {
-    let dir = pool_dir(agent);
-    let live = live_auth_path(agent).and_then(|p| std::fs::read(p).ok());
-    let mut slots = Vec::new();
-    let Ok(entries) = std::fs::read_dir(&dir) else {
-        return slots;
-    };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.extension().and_then(|e| e.to_str()) != Some(SNAP_EXT) {
-            continue;
-        }
-        let label = path
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or("?")
-            .to_string();
-        let active = match (&live, std::fs::read(&path)) {
-            (Some(l), Ok(snap)) => *l == snap,
-            _ => false,
-        };
-        slots.push(PoolSlot {
-            label,
-            path,
-            active,
-        });
-    }
-    slots.sort_by(|a, b| a.label.cmp(&b.label));
-    slots
+/// The directory of one saved slot (also usable as the agent's profile home).
+pub fn slot_dir(agent: Agent, label: &str) -> PathBuf {
+    accounts_root(agent).join(sanitize(label))
 }
 
-/// Sanitize a label into a safe file stem (keeps `@ . _ -` and alnum).
+/// The `(env-var, value)` for launching the agent under a slot's profile home.
+pub fn profile_env(agent: Agent, label: &str) -> (&'static str, PathBuf) {
+    let var = match agent {
+        Agent::Codex => "CODEX_HOME",
+        Agent::Claude => "CLAUDE_CONFIG_DIR",
+    };
+    (var, slot_dir(agent, label))
+}
+
+/// Sanitize a label into a safe directory name (keeps `@ . _ -` and alnum).
 fn sanitize(label: &str) -> String {
     let s: String = label
         .chars()
@@ -357,45 +372,143 @@ fn sanitize(label: &str) -> String {
     }
 }
 
-/// Capture the agent's current live auth into a new pool slot, labelled by the
-/// detected account email (or id). Returns the slot label.
+fn now_rfc3339() -> String {
+    chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
+}
+
+fn read_meta(dir: &Path) -> Option<AccountMeta> {
+    serde_json::from_slice(&std::fs::read(dir.join("account.json")).ok()?).ok()
+}
+
+/// List saved account slots, marking which one matches the live credential.
+pub fn list_slots(agent: Agent) -> Vec<AccountSlot> {
+    let root = accounts_root(agent);
+    let live = live_auth_path(agent).and_then(|p| std::fs::read(p).ok());
+    let mut slots = Vec::new();
+    let Ok(entries) = std::fs::read_dir(&root) else {
+        return slots;
+    };
+    for entry in entries.flatten() {
+        let dir = entry.path();
+        if !dir.is_dir() {
+            continue;
+        }
+        let cred = match std::fs::read(dir.join(cred_filename(agent))) {
+            Ok(b) => b,
+            Err(_) => continue, // not a credential slot
+        };
+        let label = dir.file_name().and_then(|s| s.to_str()).unwrap_or("?").to_string();
+        let meta = read_meta(&dir).unwrap_or(AccountMeta {
+            schema_version: 1,
+            agent: agent.dir().to_string(),
+            label: label.clone(),
+            email: None,
+            plan_hint: None,
+            account_id: None,
+            workspace_id: None,
+            created_at: None,
+            last_verified_at: None,
+            source: None,
+        });
+        let active = live.as_ref().map(|l| *l == cred).unwrap_or(false);
+        slots.push(AccountSlot { meta, dir, active });
+    }
+    slots.sort_by(|a, b| a.meta.label.cmp(&b.meta.label));
+    slots
+}
+
+/// Capture the agent's current live credential into a new slot (with metadata).
+/// Returns the slot label.
 pub fn snapshot_current(agent: Agent) -> std::io::Result<String> {
     let live = live_auth_path(agent).ok_or_else(|| std::io::Error::other("no home dir"))?;
     let bytes = std::fs::read(&live)?;
-    let label = sanitize(&detect_label(agent));
-    let dir = pool_dir(agent);
-    std::fs::create_dir_all(&dir)?;
-    let target = dir.join(format!("{label}.{SNAP_EXT}"));
-    atomic_write(&target, &bytes)?;
-    Ok(label)
-}
-
-/// Best-effort display label for the currently signed-in account.
-fn detect_label(agent: Agent) -> String {
     let identity = match agent {
         Agent::Codex => codex_identity(),
         Agent::Claude => claude_identity(),
     };
-    identity
-        .and_then(|i| i.email.or(i.account_id))
-        .unwrap_or_else(|| "account".to_string())
+    save_slot(agent, &bytes, identity.as_ref(), "capture-current")
 }
 
-/// Make the given snapshot the live auth (copies it over the agent's auth file).
+/// Persist credential bytes + identity as a slot dir (`account.json` + cred).
+/// Used by `snapshot_current` and by the OAuth-login add flow. Returns the label.
+pub fn save_slot(
+    agent: Agent,
+    cred_bytes: &[u8],
+    identity: Option<&Identity>,
+    source: &str,
+) -> std::io::Result<String> {
+    let label = sanitize(&label_from_identity(agent, identity));
+    let dir = slot_dir(agent, &label);
+    std::fs::create_dir_all(&dir)?;
+    atomic_write(&dir.join(cred_filename(agent)), cred_bytes)?;
+    let now = now_rfc3339();
+    let meta = AccountMeta {
+        schema_version: 1,
+        agent: agent.dir().to_string(),
+        label: label.clone(),
+        email: identity.and_then(|i| i.email.clone()),
+        plan_hint: identity.and_then(|i| i.plan_type.clone()),
+        account_id: identity.and_then(|i| i.account_id.clone()),
+        workspace_id: None,
+        created_at: Some(now.clone()),
+        last_verified_at: Some(now),
+        source: Some(source.to_string()),
+    };
+    let json = serde_json::to_vec_pretty(&meta).map_err(std::io::Error::other)?;
+    atomic_write(&dir.join("account.json"), &json)?;
+    Ok(label)
+}
+
+fn label_from_identity(agent: Agent, identity: Option<&Identity>) -> String {
+    identity
+        .and_then(|i| i.email.clone().or_else(|| i.account_id.clone()))
+        .unwrap_or_else(|| format!("{}-account", agent.dir()))
+}
+
+/// Make a saved slot the live credential (atomic file swap). For Claude, also
+/// surgically update `~/.claude.json` `oauthAccount` so the shown account
+/// matches — the rest of that large shared config is left intact.
 pub fn switch_slot(agent: Agent, label: &str) -> std::io::Result<()> {
-    let snap = pool_dir(agent).join(format!("{label}.{SNAP_EXT}"));
-    let bytes = std::fs::read(&snap)?;
+    let dir = slot_dir(agent, label);
+    let bytes = std::fs::read(dir.join(cred_filename(agent)))?;
     let live = live_auth_path(agent).ok_or_else(|| std::io::Error::other("no home dir"))?;
     if let Some(parent) = live.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    atomic_write(&live, &bytes)
+    atomic_write(&live, &bytes)?;
+    if agent == Agent::Claude {
+        let _ = patch_claude_oauth_account(read_meta(&dir).and_then(|m| m.email));
+    }
+    Ok(())
 }
 
-/// Remove a saved snapshot from the pool.
+/// Best-effort: set `oauthAccount.emailAddress` in `~/.claude.json` without
+/// replacing the file (it holds projects/history/settings too).
+fn patch_claude_oauth_account(email: Option<String>) -> std::io::Result<()> {
+    let Some(email) = email else { return Ok(()) };
+    let Some(path) = user_home().map(|h| h.join(".claude.json")) else {
+        return Ok(());
+    };
+    let Ok(bytes) = std::fs::read(&path) else { return Ok(()) };
+    let Ok(mut value) = serde_json::from_slice::<Value>(&bytes) else {
+        return Ok(());
+    };
+    let Some(obj) = value.as_object_mut() else { return Ok(()) };
+    match obj.get_mut("oauthAccount").and_then(|a| a.as_object_mut()) {
+        Some(acc) => {
+            acc.insert("emailAddress".into(), Value::String(email));
+        }
+        None => {
+            obj.insert("oauthAccount".into(), serde_json::json!({ "emailAddress": email }));
+        }
+    }
+    let json = serde_json::to_vec_pretty(&value).map_err(std::io::Error::other)?;
+    atomic_write(&path, &json)
+}
+
+/// Remove a saved slot (its whole directory).
 pub fn delete_slot(agent: Agent, label: &str) -> std::io::Result<()> {
-    let snap = pool_dir(agent).join(format!("{label}.{SNAP_EXT}"));
-    match std::fs::remove_file(&snap) {
+    match std::fs::remove_dir_all(slot_dir(agent, label)) {
         Ok(()) => Ok(()),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
         Err(e) => Err(e),
@@ -536,25 +649,27 @@ mod tests {
         let b = snapshot_current(Agent::Codex).unwrap();
         assert_eq!(b, "bob");
 
-        // Live currently equals "bob"; the list marks it active.
+        // Live currently equals "bob"; the list marks it active and carries meta.
         let slots = list_slots(Agent::Codex);
         assert_eq!(slots.len(), 2);
-        let bob = slots.iter().find(|s| s.label == "bob").unwrap();
+        let bob = slots.iter().find(|s| s.meta.label == "bob").unwrap();
         assert!(bob.active, "bob snapshot matches live bytes");
-        assert!(!slots.iter().find(|s| s.label == "alice").unwrap().active);
+        assert_eq!(bob.meta.account_id.as_deref(), Some("bob"));
+        assert_eq!(bob.meta.source.as_deref(), Some("capture-current"));
+        assert!(!slots.iter().find(|s| s.meta.label == "alice").unwrap().active);
 
         // Switch back to alice: the live file now matches the alice snapshot.
         switch_slot(Agent::Codex, "alice").unwrap();
         let live_bytes = std::fs::read(&live).unwrap();
         assert!(live_bytes.windows(5).any(|w| w == b"alice"));
-        assert!(list_slots(Agent::Codex).iter().find(|s| s.label == "alice").unwrap().active);
+        assert!(list_slots(Agent::Codex).iter().find(|s| s.meta.label == "alice").unwrap().active);
 
         // Delete bob; only alice remains (idempotent on a second delete).
         delete_slot(Agent::Codex, "bob").unwrap();
         delete_slot(Agent::Codex, "bob").unwrap();
         let slots = list_slots(Agent::Codex);
         assert_eq!(slots.len(), 1);
-        assert_eq!(slots[0].label, "alice");
+        assert_eq!(slots[0].meta.label, "alice");
 
         std::env::remove_var("AI_HANDOFF_HOME");
         std::env::remove_var("CODEX_HOME");

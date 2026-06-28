@@ -182,7 +182,7 @@ enum CreditsState {
 struct AgentAccount {
     identity: Option<account::Identity>,
     status: Option<account::AccountStatus>,
-    slots: Vec<account::PoolSlot>,
+    slots: Vec<account::AccountSlot>,
 }
 
 /// Both agents' account data for the Account tab.
@@ -827,9 +827,9 @@ impl App {
             });
             for (i, slot) in data.slots.iter().enumerate() {
                 let label = if slot.active {
-                    format!("• {}  [{}]", slot.label, t!("account.active"))
+                    format!("• {}  [{}]", slot.meta.label, t!("account.active"))
                 } else {
-                    format!("• {}", slot.label)
+                    format!("• {}", slot.meta.label)
                 };
                 rows.push(AccRow {
                     indent: 2,
@@ -962,7 +962,7 @@ impl App {
         let Some((agent, i)) = self.acc_selected_slot() else {
             return;
         };
-        let label = self.account.agent(agent).slots[i].label.clone();
+        let label = self.account.agent(agent).slots[i].meta.label.clone();
         match account::switch_slot(agent, &label) {
             Ok(()) => {
                 // The live account changed — the cached credit count is stale.
@@ -982,7 +982,7 @@ impl App {
         let Some((agent, i)) = self.acc_selected_slot() else {
             return;
         };
-        let label = self.account.agent(agent).slots[i].label.clone();
+        let label = self.account.agent(agent).slots[i].meta.label.clone();
         match account::delete_slot(agent, &label) {
             Ok(()) => {
                 self.reload_account();
@@ -1928,6 +1928,25 @@ mod tests {
         assert_eq!(app.tab, Tab::Capsule);
     }
 
+    fn test_slot(label: &str, active: bool) -> account::AccountSlot {
+        account::AccountSlot {
+            meta: account::AccountMeta {
+                schema_version: 1,
+                agent: "codex".into(),
+                label: label.into(),
+                email: Some(label.into()),
+                plan_hint: None,
+                account_id: None,
+                workspace_id: None,
+                created_at: None,
+                last_verified_at: None,
+                source: None,
+            },
+            dir: std::path::PathBuf::from(format!("/p/{label}")),
+            active,
+        }
+    }
+
     /// Build an app with an injected Codex account (one slot) for nav tests.
     fn account_app() -> App {
         let mut app = test_app();
@@ -1952,16 +1971,8 @@ mod tests {
                 captured_at: Some(chrono::Utc::now().timestamp_millis()),
             }),
             slots: vec![
-                account::PoolSlot {
-                    label: "dev@example.com".into(),
-                    path: std::path::PathBuf::from("/p/dev.authsnap"),
-                    active: true,
-                },
-                account::PoolSlot {
-                    label: "alt@example.com".into(),
-                    path: std::path::PathBuf::from("/p/alt.authsnap"),
-                    active: false,
-                },
+                test_slot("dev@example.com", true),
+                test_slot("alt@example.com", false),
             ],
         };
         app

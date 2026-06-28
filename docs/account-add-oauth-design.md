@@ -1,5 +1,11 @@
 # Account 탭 — "계정 추가하기" (OAuth 로그인) 설계
 
+> **상위 문서**: [account-switching-oauth-redesign.md](account-switching-oauth-redesign.md) 가 이 문서를 확장·대체한다(계정 전환 모드, vault, CLI, Business 정책 포함). 이 문서는 "계정 추가" 부분의 초안으로 남긴다.
+>
+> **검증 교정** (공식 문서 확인 완료):
+> - Codex headless 로그인 = `codex login --device-auth` (**beta**, ChatGPT 보안설정서 활성 필요). 이 문서 초안의 `--device-code`는 오기.
+> - Claude 로그인 = `claude auth login` (`--email`/`--sso`/`--console`) 가 공식 명령. 앱 내부 `/login`은 fallback.
+
 상태: 설계(미구현). TUI Account 탭의 계정 추가 동작을 **OAuth 로그인 방식**으로 정의한다.
 대상 플랫폼: Windows (파일 기반 자격증명). macOS/Keychain은 별도 절에 주석.
 

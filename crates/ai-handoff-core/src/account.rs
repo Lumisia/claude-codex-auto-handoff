@@ -465,6 +465,49 @@ fn label_from_identity(agent: Agent, identity: Option<&Identity>) -> String {
         .unwrap_or_else(|| format!("{}-account", agent.dir()))
 }
 
+/// After an official `codex login` / `claude auth login` wrote credentials into
+/// `profile_home` (a temp `CODEX_HOME` / `CLAUDE_CONFIG_DIR`), capture them into
+/// a vault slot with identity metadata. Returns the slot label.
+///
+/// The credential bytes never leave this process; only the slot files are
+/// written under the accounts vault.
+pub fn capture_login(agent: Agent, profile_home: &Path, source: &str) -> std::io::Result<String> {
+    let bytes = std::fs::read(profile_home.join(cred_filename(agent))).map_err(|_| {
+        std::io::Error::other(
+            "no credential file was written (the login may have used the OS keyring)",
+        )
+    })?;
+    let identity = match agent {
+        Agent::Codex => serde_json::from_slice::<Value>(&bytes)
+            .ok()
+            .and_then(|v| identity_from_auth(&v)),
+        Agent::Claude => claude_identity_from_dir(profile_home),
+    };
+    save_slot(agent, &bytes, identity.as_ref(), source)
+}
+
+/// Read the Claude account email/plan from a config dir's `.claude.json`.
+fn claude_identity_from_dir(dir: &Path) -> Option<Identity> {
+    let value: Value = serde_json::from_slice(&std::fs::read(dir.join(".claude.json")).ok()?).ok()?;
+    let email = value
+        .get("oauthAccount")
+        .and_then(|a| a.get("emailAddress"))
+        .and_then(Value::as_str)
+        .map(String::from);
+    let plan_type = value
+        .get("subscriptionType")
+        .and_then(Value::as_str)
+        .map(String::from);
+    if email.is_none() && plan_type.is_none() {
+        return None;
+    }
+    Some(Identity {
+        email,
+        account_id: None,
+        plan_type,
+    })
+}
+
 /// Make a saved slot the live credential (atomic file swap). For Claude, also
 /// surgically update `~/.claude.json` `oauthAccount` so the shown account
 /// matches — the rest of that large shared config is left intact.

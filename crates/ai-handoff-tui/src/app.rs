@@ -167,6 +167,16 @@ struct AccRow {
     target: AccTarget,
 }
 
+/// A deferred action that needs the terminal suspended (an interactive vendor
+/// CLI takes over the screen). Set by a keypress, run by the event loop.
+#[derive(Clone, PartialEq, Eq, Debug)]
+enum Pending {
+    /// `codex login` / `claude auth login`, then capture into the vault.
+    AddAccount(Agent),
+    /// Launch the agent under a saved slot's profile home.
+    Launch(Agent, String),
+}
+
 /// The reset-credit ("초기화권") fetch is an explicit, network-gated action.
 #[derive(Clone, PartialEq, Eq)]
 enum CreditsState {
@@ -237,6 +247,8 @@ pub struct App {
     acc_confirm_delete: bool,
     /// The (Codex) reset-credit count: fetched on demand over the network.
     acc_credits: CreditsState,
+    /// A terminal-suspending action queued by a keypress (add / launch).
+    pending: Option<Pending>,
     // --- Capsule tab state ---
     cap_tree: Vec<CapsuleAgent>,
     cap_expanded_agents: HashSet<usize>,
@@ -301,6 +313,7 @@ impl App {
             acc_sel: 0,
             acc_confirm_delete: false,
             acc_credits: CreditsState::Idle,
+            pending: None,
             cap_tree,
             cap_expanded_agents,
             cap_expanded_projects: HashSet::new(),
@@ -331,7 +344,32 @@ impl App {
                     }
                 }
             }
+            // A key may have queued an interactive action (login / launch) that
+            // needs the whole terminal; run it with the TUI suspended.
+            if let Some(pending) = self.pending.take() {
+                self.run_suspended(pending, terminal)?;
+            }
         }
+        Ok(())
+    }
+
+    /// Suspend the TUI, run an interactive vendor CLI, then restore and refresh.
+    fn run_suspended(&mut self, pending: Pending, terminal: &mut DefaultTerminal) -> std::io::Result<()> {
+        ratatui::restore();
+        let status = match &pending {
+            Pending::AddAccount(agent) => match crate::account_login::add_account(*agent) {
+                Ok(label) => t!("status.account_captured", label = label).into_owned(),
+                Err(e) => t!("status.account_capture_failed", err = e).into_owned(),
+            },
+            Pending::Launch(agent, label) => match crate::account_login::launch(*agent, label) {
+                Ok(()) => t!("status.account_launched", label = label).into_owned(),
+                Err(e) => t!("status.account_launch_failed", err = e).into_owned(),
+            },
+        };
+        *terminal = ratatui::init();
+        terminal.clear()?;
+        self.reload_account();
+        self.status = status;
         Ok(())
     }
 
@@ -883,13 +921,14 @@ impl App {
                     self.acc_sel += 1;
                 }
             }
-            KeyCode::Char('+') => {
-                let agent = self.acc_selected_agent();
-                self.acc_add(agent);
+            KeyCode::Char('+') | KeyCode::Char('a') => {
+                self.pending = Some(Pending::AddAccount(self.acc_selected_agent()));
             }
             KeyCode::Enter | KeyCode::Right | KeyCode::Char(' ') => {
                 match rows.get(self.acc_sel).map(|r| r.target) {
-                    Some(AccTarget::Add(agent)) => self.acc_add(agent),
+                    Some(AccTarget::Add(agent)) => {
+                        self.pending = Some(Pending::AddAccount(agent))
+                    }
                     Some(AccTarget::Slot(..)) | Some(AccTarget::Header(_)) => {
                         self.acc_focus = AccFocus::Detail;
                         self.acc_confirm_delete = false;
@@ -937,23 +976,17 @@ impl App {
                     self.status = t!("status.account_delete_confirm").into_owned();
                 }
             }
+            KeyCode::Char('a') => {
+                self.pending = Some(Pending::AddAccount(self.acc_selected_agent()))
+            }
+            KeyCode::Char('l') => {
+                if let Some((agent, i)) = self.acc_selected_slot() {
+                    let label = self.account.agent(agent).slots[i].meta.label.clone();
+                    self.pending = Some(Pending::Launch(agent, label));
+                }
+            }
             KeyCode::Char('r') => self.acc_refresh_credits(),
             _ => {}
-        }
-    }
-
-    /// Add an account to the pool. Interim behavior: snapshot the agent's
-    /// current live auth into a new slot (labelled by the detected email). The
-    /// planned OAuth login flow is documented in docs/account-add-oauth-design.md.
-    fn acc_add(&mut self, agent: Agent) {
-        match account::snapshot_current(agent) {
-            Ok(label) => {
-                self.reload_account();
-                self.status = t!("status.account_captured", label = label).into_owned();
-            }
-            Err(e) => {
-                self.status = t!("status.account_capture_failed", err = e.to_string()).into_owned()
-            }
         }
     }
 
@@ -1458,6 +1491,11 @@ impl App {
                 action_style(focused && has_slot),
             ),
             Span::raw("  "),
+            Span::styled(
+                format!(" {} ", t!("account.btn_launch")),
+                action_style(focused && has_slot),
+            ),
+            Span::raw("  "),
         ];
         if self.acc_confirm_delete {
             spans.push(Span::styled(
@@ -1470,6 +1508,11 @@ impl App {
                 action_style(focused && has_slot),
             ));
         }
+        spans.push(Span::raw("  "));
+        spans.push(Span::styled(
+            format!(" {} ", t!("account.btn_add")),
+            action_style(focused),
+        ));
         let bar = Paragraph::new(Line::from(spans))
             .block(focus_block(t!("account.actions"), focused));
         f.render_widget(bar, area);
@@ -2049,6 +2092,27 @@ mod tests {
         assert!(app.acc_confirm_delete);
         app.on_key(key(KeyCode::Char('x'))); // any other key disarms
         assert!(!app.acc_confirm_delete);
+    }
+
+    #[test]
+    fn account_a_queues_add_and_l_queues_launch() {
+        let mut app = account_app();
+        app.tab = Tab::Account;
+        app.focus_content = true;
+        app.acc_focus = AccFocus::Detail;
+        app.acc_sel = 1; // first Codex slot (dev@example.com)
+
+        // 'l' on a slot queues a launch for that slot.
+        app.on_key(key(KeyCode::Char('l')));
+        assert_eq!(
+            app.pending,
+            Some(Pending::Launch(Agent::Codex, "dev@example.com".into()))
+        );
+
+        // 'a' queues an OAuth add for the selected agent.
+        app.pending = None;
+        app.on_key(key(KeyCode::Char('a')));
+        assert_eq!(app.pending, Some(Pending::AddAccount(Agent::Codex)));
     }
 
     #[test]

@@ -535,10 +535,10 @@ hint.account_tree:
   ja: "↑/↓ 移動 · Enter/→ アカウントを開く · + アカウントを追加 · q/Esc 戻る"
   zh: "↑/↓ 移动 · Enter/→ 打开账户 · + 添加账户 · q/Esc 返回"
 hint.account_detail:
-  en: "s switch · d delete · r refresh credits · ← back to list"
-  ko: "s 전환 · d 삭제 · r 초기화권 새로고침 · ← 목록으로"
-  ja: "s 切替 · d 削除 · r 初期化券を更新 · ← 一覧へ"
-  zh: "s 切换 · d 删除 · r 刷新重置券 · ← 返回列表"
+  en: "s switch · l launch · a add · d delete · r refresh credits · ← back"
+  ko: "s 전환 · l 이 계정으로 실행 · a 추가 · d 삭제 · r 초기화권 새로고침 · ← 뒤로"
+  ja: "s 切替 · l 起動 · a 追加 · d 削除 · r 初期化券更新 · ← 戻る"
+  zh: "s 切换 · l 启动 · a 添加 · d 删除 · r 刷新重置券 · ← 返回"
 account.empty:
   en: "No accounts yet.\n\nPress + to add an account (sign in to Codex or Claude). Add several to manage and switch between them."
   ko: "아직 계정이 없습니다.\n\n+ 를 눌러 계정을 추가하세요 (Codex 또는 Claude 로그인). 여러 개를 추가해 관리·전환할 수 있습니다."
@@ -579,6 +579,16 @@ account.btn_confirm_delete:
   ko: "[d] 삭제 확인"
   ja: "[d] 削除を確定"
   zh: "[d] 确认删除"
+account.btn_launch:
+  en: "[l] launch with this account"
+  ko: "[l] 이 계정으로 실행"
+  ja: "[l] このアカウントで起動"
+  zh: "[l] 用此账户启动"
+account.btn_add:
+  en: "[a] add account"
+  ko: "[a] 계정 추가"
+  ja: "[a] アカウント追加"
+  zh: "[a] 添加账户"
 account.detail_placeholder:
   en: "Pick an account on the left to see its plan and limits."
   ko: "왼쪽에서 계정을 선택하면 플랜과 한도가 표시됩니다."
@@ -660,10 +670,10 @@ account.reset_credits_error:
   ja: "取得不可 (%{err})"
   zh: "不可用 (%{err})"
 status.account_switched:
-  en: "switched to %{label}"
-  ko: "%{label} 로 전환됨"
-  ja: "%{label} に切替えました"
-  zh: "已切换到 %{label}"
+  en: "switched to %{label} — restart Codex/Claude for it to take effect"
+  ko: "%{label} 로 전환됨 — 적용하려면 Codex/Claude 재시작"
+  ja: "%{label} に切替 — 反映には Codex/Claude を再起動"
+  zh: "已切换到 %{label} — 重启 Codex/Claude 后生效"
 status.account_switch_failed:
   en: "switch failed: %{err}"
   ko: "전환 실패: %{err}"
@@ -699,6 +709,16 @@ status.account_capture_failed:
   ko: "추가 실패: %{err}"
   ja: "追加に失敗: %{err}"
   zh: "添加失败: %{err}"
+status.account_launched:
+  en: "launched %{label} (this session)"
+  ko: "%{label} 실행함 (이 세션)"
+  ja: "%{label} を起動しました（このセッション）"
+  zh: "已启动 %{label}（本次会话）"
+status.account_launch_failed:
+  en: "launch failed: %{err}"
+  ko: "실행 실패: %{err}"
+  ja: "起動に失敗: %{err}"
+  zh: "启动失败: %{err}"
 status.account_credits_ok:
   en: "reset credits: %{count}"
   ko: "초기화권: %{count}개"

@@ -15,7 +15,6 @@
 param(
     [switch]$Yes,
     [switch]$DryRun,
-    [ValidateSet('codex', 'claude', 'claude-code')]
     [string]$Only,
     [string]$Version = 'latest',
     [switch]$WithGui
@@ -23,6 +22,12 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $repo = 'Lumisia/aho__ai-handoff'
+
+# Validate -Only here (not via [ValidateSet]) so the empty default does not
+# fail validation when this script is run through `irm ... | iex`.
+if ($Only -and @('codex', 'claude', 'claude-code') -notcontains $Only) {
+    throw "unknown -Only value: $Only (use codex, claude, or claude-code)"
+}
 
 # TLS 1.2 for Windows PowerShell 5.1 (PowerShell 7+ already defaults to it).
 try { [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12 } catch {}

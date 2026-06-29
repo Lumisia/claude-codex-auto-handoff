@@ -1,173 +1,106 @@
+# AI Handoff 詳細ガイド
+
 [English](README.md) | [한국어](README.ko.md) | **日本語** | [中文](README.zh.md)
 
-# 高度なヘルプ
-
-ai-handoff が期待どおりに動かないときに見るページです。
+この文書では、初心者向け README から意図的に省いた詳細を説明します。
 
 ## 目次
 
-1. [最初に確認すること](#最初に確認すること)
-2. [capsule が見えません](#capsule-が見えません)
-3. [Claude Code と Codex がつながりません](#claude-code-と-codex-がつながりません)
-4. [保存場所と AI_HANDOFF_ROOT](#保存場所と-ai_handoff_root)
-5. [高度な設定キー](#高度な設定キー)
-6. [設定できる引数](#handoff-clear-arguments)
-7. [Codex capsule の動作](#codex-capsule-の動作)
+- [コマンド詳細](#コマンド詳細)
+- [ファイル構成](#ファイル構成)
+- [プロジェクト構成](#プロジェクト構成)
+- [開発チェック](#開発チェック)
+- [トラブルシューティング](#トラブルシューティング)
 
-## 最初に確認すること
+## コマンド詳細
 
-- Claude Code と Codex を同じプロジェクトフォルダで実行しているか確認してください。
-- `/handoff status` で、このプロジェクトに待機中の capsule があるか確認します。
-- `/handoff recent` で、別プロジェクトに保存された capsule がないか確認します。
-- `/handoff doctor` で、保存場所、プロジェクト識別子、capsule 状態を診断します。
-- 設定を変えた後は、新しいセッションを開始するか、Claude Code で `/reload-plugins` を実行してください。
+| コマンド | ターミナル相当 | 詳細 |
+|---|---|---|
+| `handoff-checkpoint` | `ai-handoff checkpoint --message "work snapshot"` | 現在の作業からローカルカプセルを作成します。次のエージェントが何のために見る checkpoint なのかを短く書きます。 |
+| `handoff-doctor` | `ai-handoff doctor` | plugin 状態、hook trust、daemon 接続、IPC、store、重複 hook 問題を確認します。 |
+| `handoff-config` | `ai-handoff config list` | 編集可能な config key を表示します。直接編集する場合は `ai-handoff config get <key>` と `ai-handoff config set <key> <value>` を使います。 |
 
-Claude Code monitor には Claude Code v2.1.105 以上、interactive CLI session、user/personal scope のプラグインインストールが必要です。monitor が使えない環境では、現在の回答が終わったあと Stop hook が代わりに動きます。
+便利なターミナルコマンド:
 
-## capsule が見えません
-
-まず `/handoff doctor` を実行してください。多くの場合、原因は次のどれかです。
-
-- 別のフォルダで実行したため、プロジェクト識別子が変わっています。
-- capsule はすでに一度再開され、consumed 状態になっています。
-- Claude Code と Codex が別々の保存場所を見ています。
-- `ask` mode で capsule 作成をまだ承認していません。
-
-確認順:
-
-```text
-/handoff status
-/handoff recent
-/handoff history
-/handoff doctor
+```sh
+ai-handoff
+ai-handoff tui
+ai-handoff checkpoint --message "backend auth work"
+ai-handoff doctor
+ai-handoff config list
+ai-handoff config get triggers.five_hour.mode
+ai-handoff config set triggers.five_hour.threshold_percent 80
+ai-handoff usage
+ai-handoff account status
+ai-handoff daemon run
+ai-handoff autostart status
+ai-handoff uninstall --keep-store
 ```
 
-`recent` には出るのに `status` には出ない場合、別のプロジェクトフォルダに保存されている可能性が高いです。
+## ファイル構成
 
-## Claude Code と Codex がつながりません
+AI Handoff runtime home:
 
-- 両方のツールにプラグインをインストールしてください。
-- プラグイン内部名は `ai-handoff` です。
-- Claude Code は使用量を status line から読むため、追加設定コマンドを一度実行する必要があります。
-- Codex には追加の status line 設定は不要です。
-- Windows の Store/MSIX 版 Claude アプリでは `%LOCALAPPDATA%` が分かれることがあります。その場合は、両方のツールで同じ `AI_HANDOFF_ROOT` を設定してください。
+- Windows: `%USERPROFILE%\.ai-handoff`
+- macOS: `~/Library/Application Support/ai-handoff`
+- Linux: `${XDG_STATE_HOME:-~/.local/state}/ai-handoff`
 
-Windows で互いの capsule が見えない場合、まず `AI_HANDOFF_ROOT` を確認するのが最短です。
+重要な runtime entry:
 
-## 保存場所と AI_HANDOFF_ROOT
-
-`AI_HANDOFF_ROOT` が設定されていれば、その場所を使います。なければ OS の既定場所を使います。
-
-| OS | 既定の保存ルート |
+| パス | 目的 |
 |---|---|
-| Windows | `%LOCALAPPDATA%\ai-handoff` |
-| macOS | `~/Library/Application Support/ai-handoff` |
-| Linux | `$XDG_STATE_HOME/ai-handoff` または `~/.local/state/ai-handoff` |
+| `config.toml` | Claude Code、Codex、daemon、TUI、hook が共有する設定です。 |
+| `store/` | ローカルカプセル、プロジェクト bucket、handoff 状態を保存します。 |
+| `ipc/` | hook と daemon が使うローカル file IPC queue です。Codex はここだけを書ければ十分です。 |
+| `logs/` | 有効な場合、daemon と診断ログを保存します。 |
+| `accounts/` | ローカルアカウント metadata です。credential を hook や capsule に出してはいけません。 |
+| `install-state.json` | installer が書いた内容を記録し、uninstall が管理対象ファイルだけを消せるようにします。 |
 
-主な下位パス:
+## プロジェクト構成
 
-| 内容 | パス |
+| パス | 目的 |
 |---|---|
-| 設定 | `<root>/config.json` |
-| プロジェクトデータ | `<root>/projects/<fingerprint>` |
-| capsule | `<root>/projects/<fingerprint>/handoff` |
-| memory | `<root>/projects/<fingerprint>/memory` |
-| Claude 使用量 sample | `<root>/sensors/claude` |
+| `crates/ai-handoff-cli/` | ネイティブ CLI entrypoint とユーザー向けコマンドです。 |
+| `crates/ai-handoff-core/` | 共通 config、install、hook event、fingerprint、redaction、capsule logic です。 |
+| `crates/ai-handoff-daemon/` | hook request を受け取り capsule を書くローカル daemon です。 |
+| `crates/ai-handoff-ipc/` | ファイルベース IPC protocol と client/server helper です。 |
+| `crates/ai-handoff-tui/` | ターミナルダッシュボードです。 |
+| `crates/ai-handoff-usage/` | ローカル Claude/Codex usage log parser と cost estimator です。 |
+| `apps/desktop/` | 任意機能の Tauri desktop dashboard です。 |
+| `skills/` | plugin bundle が提供する agent-facing skill です。 |
+| `schemas/` | capsule と memory schema ファイルです。 |
+| `scripts/` | package validation と release helper script です。 |
 
-Windows で共有保存場所を指定する例:
+## 開発チェック
+
+コミット前に実行:
+
+```sh
+cargo fmt --all -- --check
+cargo test --workspace
+npm run validate:package
+git diff --check
+```
+
+daemon が `target/release/ai-handoff.exe` を使用していないときに release build を実行します。
+
+```sh
+cargo build --release -p ai-handoff-cli
+```
+
+Windows で build 中に access denied が出る場合は、実行中のローカル daemon を先に止めます。
 
 ```powershell
-[Environment]::SetEnvironmentVariable("AI_HANDOFF_ROOT", "C:\Users\<you>\ai-handoff-store", "User")
+Get-Process ai-handoff | Stop-Process
+cargo build --release -p ai-handoff-cli
 ```
 
-macOS/Linux の例:
+## トラブルシューティング
 
-```bash
-export AI_HANDOFF_ROOT="$HOME/ai-handoff-store"
-```
-
-環境変数を変えた後は、Claude Code と Codex の両方を再起動してください。
-
-## 高度な設定キー
-
-`/handoff config` は現在の設定を表示します。値は期待される型と範囲に合わせる必要があります。
-
-| キー | 説明 |
+| 症状 | 確認すること |
 |---|---|
-| `triggers.five_hour.burn_rate.enabled` | 使用量の減りが速いとき、早めに引き継ぎを準備するか |
-| `triggers.five_hour.burn_rate.runway_minutes` | 残り時間が何分以下なら準備するか、5-120 |
-| `capsule.completed_autocreate` | 作業完了に見える状態でも自動 capsule を作るか |
-| `codex.inline_final_capsule` | Codex auto mode で最終回答の fenced capsule flow を使うか。既定値は `true` |
-| `codex.stop_continuation_auto_summary` | 旧 Codex Stop `decision:block` summary continuation を許可するか。既定値は `false` |
-| `codex.stop_continuation_ask` | 旧 Codex Stop `decision:block` ask continuation を許可するか。既定値は `false` |
-| `codex.degraded_fallback_on_stop` | Codex が Stop 時点で初めて threshold を超えた場合に degraded capsule を保存するか。既定値は `true` |
-| `clear.auto.enabled` | SessionStart 時に古い used capsule の自動削除をオン/オフするか。既定値は `false` |
-| `clear.older_than_days` | used capsule を削除する既定の経過日数。既定値は 30 日 |
-| `handoff.notify_newer_pending` | より新しい待機中 capsule があるとき通知するか |
-| `locale` | メッセージ言語、`en`, `ko`, `ja`, `zh` |
-| `debug.stop_log` | Stop hook の判断ログを残すか |
-| `memory.auto_recall` | 会話開始時に検証済み memory を自動で呼び出すか |
-| `memory.auto_recall_token_budget` | 自動 memory recall に使う token 予算 |
-| `statusline.show_handoff` | Claude status line に handoff 情報を表示するか |
-| `notification.fallback` | OS 通知に失敗したとき terminal 通知を使うか |
-
-通常は `threshold_percent`, `mode`, `realtime.enabled` だけで十分です。
-
-<a id="handoff-clear-arguments"></a>
-
-## 6. 設定できる引数
-
-`/handoff clear` は最初の引数で削除範囲を決めます。
-
-```text
-/handoff clear <this_project, used, consume, pending, expired> [--older-than 7d] [-c]
-```
-
-| 引数 | 説明 |
-|---|---|
-| `this_project` | 現在のプロジェクト fingerprint の ai-handoff 状態フォルダ全体を削除します。ソースリポジトリは削除しません。別名: `this-project`, `project`. |
-| `used` | 終了状態の capsule を削除します。対象は `CONSUMED`, `EXPIRED`, `REJECTED`, `SKIPPED`, `FAILED` です。 |
-| `consume` | 消費済み capsule だけを削除します。`consumed` の別名です。 |
-| `consumed` | 消費済み capsule だけを削除します。 |
-| `pending` | 待機中の capsule を削除します。対象は `AVAILABLE`, `DEGRADED_AVAILABLE` です。 |
-| `expired` | 期限切れ capsule だけを削除します。 |
-
-| オプション | 説明 |
-|---|---|
-| `--older-than 7d` | 指定した期間より古い capsule だけを削除します。`ms`, `m`, `h`, `d` を使えます。数字だけなら日数です。 |
-| `-c`, `--confirm`, `--yes` | `this_project` の削除をすぐ承認します。指定しない場合は確認用 preview を返します。 |
-
-例:
-
-```text
-/handoff clear used
-/handoff clear used --older-than 7d
-/handoff clear --older-than 7d
-/handoff clear pending
-/handoff clear this_project
-/handoff clear this_project -c
-```
-
-scope なしで `--older-than` だけを指定すると、scope は `used` になります。`--older-than` を省略した場合、used 系 scope は `clear.older_than_days` の設定値を使います。既定値は 30 日です。
-
-自動削除は手動コマンドとは別です。`clear.auto.enabled` を `true` にすると、SessionStart 時に古い `used` capsule の削除を実行します。既定値はオフ (`false`) です。バックグラウンドで常時動くのではなく、SessionStart hook が実行されたときだけ動きます。自動削除の経過日数は `clear.older_than_days` を使い、既定値は 30 日です。
-
-## Codex capsule の動作
-
-Codex Stop hook は capsule 作成のために既定で `decision: "block"` を使いません。Codex ではこの値が `reason` をユーザーに見える continuation prompt にするため、内部指示のような capsule 作成文が hook feedback や通常の assistant 出力として表示される可能性があります。
-
-既定の流れは次のとおりです。
-
-```text
-UserPromptSubmit または PostToolUse
-  -> threshold を検知
-  -> 最終回答に ai-handoff-capsule footer を付ける developer context を注入
-Assistant final answer
-  -> ユーザーへ通常どおり回答
-  -> fenced ai-handoff-capsule JSON を追加
-Stop
-  -> capsule を parse して publish
-  -> {"continue": true} を返す
-```
-
-Codex が Stop 時点で初めて threshold 超過を検知した場合、回答はすでに終わっているため自然に footer を追加できません。既定では `DEGRADED_AVAILABLE` capsule を保存し、静かに続行します。旧来の visible continuation を明示的に使いたい場合だけ、`codex.stop_continuation_auto_summary` または `codex.stop_continuation_ask` を `true` にしてください。
+| Codex が hook error を表示する | `/hooks` を開き、AI Handoff hooks を trust してから `ai-handoff doctor` を実行します。 |
+| hook が code 1 で終了する | 古い v1 Node hook または古い plugin cache を確認します。`ai-handoff install --yes` で再インストールします。 |
+| daemon が offline | 1 つのターミナルで `ai-handoff daemon run` を実行し、別のターミナルで `ai-handoff doctor` を実行します。 |
+| usage が空 | AI Handoff はローカルログだけを推定します。Claude Code または Codex を先に使ってから `ai-handoff usage` を実行します。 |
+| Windows build が exe を置き換えられない | 実行中の `ai-handoff.exe` process を止めてから再度 build します。 |

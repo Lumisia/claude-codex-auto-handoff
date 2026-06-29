@@ -6,8 +6,10 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const required = [
   '.claude-plugin/plugin.json', '.codex-plugin/plugin.json',
   '.claude-plugin/marketplace.json', '.agents/plugins/marketplace.json',
-  'hooks/hooks.json', 'monitors/monitors.json',
-  'scripts/run-hook.mjs', 'scripts/usage-monitor.mjs', 'core/cli.mjs',
+  'scripts/install.sh',
+  'skills/handoff-checkpoint/SKILL.md',
+  'skills/handoff-doctor/SKILL.md',
+  'skills/handoff-config/SKILL.md',
   'schemas/capsule.schema.json', 'schemas/memory-shard.schema.json',
 ];
 for (const relative of required) {
@@ -16,19 +18,17 @@ for (const relative of required) {
 const claude = JSON.parse(readFileSync(join(root, '.claude-plugin/plugin.json'), 'utf8'));
 const codex = JSON.parse(readFileSync(join(root, '.codex-plugin/plugin.json'), 'utf8'));
 const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
-const hooks = JSON.parse(readFileSync(join(root, 'hooks/hooks.json'), 'utf8'));
-const monitors = JSON.parse(readFileSync(join(root, 'monitors/monitors.json'), 'utf8'));
 if (claude.name !== codex.name || claude.version !== codex.version || pkg.version !== codex.version) {
   throw new Error('manifest mismatch');
 }
-if (claude.experimental?.monitors !== './monitors/monitors.json') {
-  throw new Error('Claude manifest does not declare monitors/monitors.json');
+if (claude.experimental?.monitors || codex.hooks) {
+  throw new Error('source plugin must not expose legacy v1 monitors or hook templates');
 }
-if (!Array.isArray(monitors) || !monitors.some((entry) => entry.name === 'claude-usage-threshold')) {
-  throw new Error('missing Claude usage monitor');
-}
-for (const event of ['SessionStart', 'Stop', 'UserPromptSubmit']) {
-  if (!Array.isArray(hooks.hooks?.[event])) throw new Error(`missing hook event: ${event}`);
+for (const skill of ['handoff-checkpoint', 'handoff-doctor', 'handoff-config']) {
+  const text = readFileSync(join(root, 'skills', skill, 'SKILL.md'), 'utf8');
+  if (!text.startsWith('---') || !text.includes('name:') || !text.includes('description:')) {
+    throw new Error(`invalid skill frontmatter: ${skill}`);
+  }
 }
 const claudeMarket = JSON.parse(readFileSync(join(root, '.claude-plugin/marketplace.json'), 'utf8'));
 const codexMarket = JSON.parse(readFileSync(join(root, '.agents/plugins/marketplace.json'), 'utf8'));

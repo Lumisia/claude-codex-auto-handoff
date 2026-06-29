@@ -1,9 +1,8 @@
 //! Project fingerprint — a stable per-project identifier shared by every agent
 //! (Claude, Codex, ...) working in the same checkout. The fingerprint selects
-//! the capsule bucket, so it MUST be byte-for-byte identical to the Node v1
-//! implementation in `core/lib/fingerprint.mjs`: if two agents in the same repo
-//! compute different fingerprints they land in different buckets and handoff
-//! silently fails.
+//! the capsule bucket, so it MUST stay byte-for-byte compatible with the v1
+//! canonical hash algorithm: if two agents in the same repo compute different
+//! fingerprints they land in different buckets and handoff silently fails.
 //!
 //! Basis priority: `remote.origin.url` -> gitroot -> path. The chosen basis
 //! string is prefixed `remote:` / `gitroot:` / `path:`, and the fingerprint is
@@ -847,9 +846,8 @@ mod tests {
             Path::new("/x"),
             &FixedRemote("git@github.com:Lumisia/claude-codex-auto-handoff.git"),
         );
-        // Produced by:
-        //   node -e "import('./core/lib/hash.mjs').then(m=>console.log(
-        //     m.sha256Hex('remote:git@github.com:Lumisia/claude-codex-auto-handoff.git').slice(0,24)))"
+        // Produced by the v1 canonical hash:
+        // sha256("remote:git@github.com:Lumisia/claude-codex-auto-handoff.git")[0..24]
         let expected = "7974ce42a41cfb682ca3d093";
         assert_eq!(info.fingerprint, expected);
     }

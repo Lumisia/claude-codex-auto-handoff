@@ -236,13 +236,13 @@ mod tests {
             files: vec![
                 ".claude-plugin/plugin.json".into(),
                 "hooks/hooks.json".into(),
-                "skills/handoff/SKILL.md".into(),
+                "skills/handoff-checkpoint/SKILL.md".into(),
             ],
             marketplace_file: None,
         });
         st.claude.handoff_skill = Some(PluginRecord {
-            root: "C:\\Users\\PC\\.claude\\skills\\handoff".into(),
-            files: vec!["SKILL.md".into()],
+            root: "C:\\Users\\PC\\.claude\\skills".into(),
+            files: vec!["handoff-checkpoint/SKILL.md".into()],
             marketplace_file: None,
         });
         st.codex.plugin = Some(PluginRecord {

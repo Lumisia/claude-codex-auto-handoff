@@ -2,10 +2,19 @@ node_modules/
 *.log
 .DS_Store
 /tmp/
+.claude/
+.env
+.env.*
+*.bak
+*.backup
+*.orig
 
 # Rust build artifacts (v2 cargo workspace)
 /target/
 **/target/
+
+# legacy/root-level Node test suite is not shipped in v2
+/tests/
 
 # Tauri desktop frontend build output + generated schemas
 apps/desktop/dist/

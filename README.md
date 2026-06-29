@@ -85,13 +85,15 @@ ai-handoff doctor
 
 | Command | What it does | Use when |
 |---|---|---|
-| `handoff-checkpoint` | Saves the current work as a handoff capsule. | You want to hand work to the other agent now. |
-| `handoff-doctor` | Checks install state, hooks, daemon, IPC, and capsule health. | Hooks fail, Codex shows hook errors, or install looks wrong. |
-| `handoff-config` | Shows or changes shared AI Handoff settings. | You want to change thresholds, modes, language, or display settings. |
+| `handoff` | Fetches and consumes a pending handoff capsule for the current project. | The other agent left work for you to continue. |
+| `handoff config` | Shows or changes shared AI Handoff settings. | You want to change thresholds, modes, language, or display settings. |
+| `handoff doctor` | Checks install state, hooks, daemon, IPC, and capsule health. | Hooks fail, Codex shows hook errors, or install looks wrong. |
+| `handoff checkpoint` | Saves the current work as a handoff capsule. | You want to hand work to the other agent now. |
 
 You can also run the same actions from a terminal:
 
 ```sh
+ai-handoff hook session-start --agent <codex|claude-code>
 ai-handoff checkpoint --message "work snapshot"
 ai-handoff doctor
 ai-handoff config list

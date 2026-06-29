@@ -85,13 +85,15 @@ ai-handoff doctor
 
 | コマンド | 役割 | 使うタイミング |
 |---|---|---|
-| `handoff-checkpoint` | 現在の作業を handoff カプセルとして保存します。 | 今すぐ別のエージェントへ作業を渡したいとき |
-| `handoff-doctor` | インストール状態、hook、daemon、IPC、カプセル状態を確認します。 | hook 失敗、Codex hook エラー、インストール異常が見えるとき |
-| `handoff-config` | AI Handoff の共有設定を表示または変更します。 | threshold、mode、language、display 設定を変更したいとき |
+| `handoff` | 現在のプロジェクトで待機中の handoff カプセルを取得し、消費済みにします。 | 別のエージェントが残した作業を続けるとき |
+| `handoff config` | AI Handoff の共有設定を表示または変更します。 | threshold、mode、language、display 設定を変更したいとき |
+| `handoff doctor` | インストール状態、hook、daemon、IPC、カプセル状態を確認します。 | hook 失敗、Codex hook エラー、インストール異常が見えるとき |
+| `handoff checkpoint` | 現在の作業を handoff カプセルとして保存します。 | 今すぐ別のエージェントへ作業を渡したいとき |
 
 ターミナルでも同じ操作を実行できます。
 
 ```sh
+ai-handoff hook session-start --agent <codex|claude-code>
 ai-handoff checkpoint --message "work snapshot"
 ai-handoff doctor
 ai-handoff config list

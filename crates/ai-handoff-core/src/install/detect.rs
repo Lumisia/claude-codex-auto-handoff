@@ -11,11 +11,11 @@ pub struct InstallTargets {
     /// Claude plugin bundle dir: `~/.claude/skills/ai-handoff` — dropping the
     /// bundle here makes Claude auto-load it as `ai-handoff@skills-dir`.
     pub claude_plugin_dir: PathBuf,
-    /// Plain Claude user skills root for the three `/handoff ...` entries.
+    /// Plain Claude user skills root used only to remove older generated entries.
     pub claude_handoff_skills_dir: PathBuf,
     /// Codex plugin bundle dir: `~/.agents/plugins/ai-handoff`.
     pub codex_plugin_dir: PathBuf,
-    /// Plain Codex user skills root for the three `/handoff ...` entries.
+    /// Plain Codex user skills root used only to remove older generated entries.
     pub codex_handoff_skills_dir: PathBuf,
     /// Codex personal marketplace manifest: `~/.agents/plugins/marketplace.json`
     /// (auto-discovered by Codex; an entry here registers the local bundle).

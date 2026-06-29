@@ -85,13 +85,15 @@ ai-handoff doctor
 
 | 명령어 | 하는 일 | 언제 쓰나 |
 |---|---|---|
-| `handoff-checkpoint` | 현재 작업을 handoff 캡슐로 저장합니다. | 지금 다른 에이전트에게 작업을 넘기고 싶을 때 |
-| `handoff-doctor` | 설치 상태, hook, daemon, IPC, 캡슐 상태를 점검합니다. | hook 실패, Codex hook 오류, 설치 이상이 보일 때 |
-| `handoff-config` | AI Handoff 공용 설정을 보거나 바꿉니다. | threshold, mode, language, display 설정을 바꾸고 싶을 때 |
+| `handoff` | 현재 프로젝트에 대기 중인 handoff 캡슐을 받아오고 소비 처리합니다. | 다른 에이전트가 남긴 작업을 이어서 진행해야 할 때 |
+| `handoff config` | AI Handoff 공용 설정을 보거나 바꿉니다. | threshold, mode, language, display 설정을 바꾸고 싶을 때 |
+| `handoff doctor` | 설치 상태, hook, daemon, IPC, 캡슐 상태를 점검합니다. | hook 실패, Codex hook 오류, 설치 이상이 보일 때 |
+| `handoff checkpoint` | 현재 작업을 handoff 캡슐로 저장합니다. | 지금 다른 에이전트에게 작업을 넘기고 싶을 때 |
 
 터미널에서도 같은 작업을 실행할 수 있습니다.
 
 ```sh
+ai-handoff hook session-start --agent <codex|claude-code>
 ai-handoff checkpoint --message "work snapshot"
 ai-handoff doctor
 ai-handoff config list

@@ -115,11 +115,17 @@ pub fn dashboard_snapshot() -> DashboardSnapshot {
 pub fn dashboard_snapshot_for(home: &Path, user_home: &Path) -> DashboardSnapshot {
     let p = dashboard_paths(home, user_home);
     let install_state = read_install_summary(home);
+    let install_record = state::load(home);
     let codex_hooks_text = fs::read_to_string(&p.codex_hooks).ok();
     let codex_config_text = fs::read_to_string(&p.codex_config).ok();
     let claude_settings_text = fs::read_to_string(&p.claude_settings).ok();
 
-    let codex_hooks = check_codex_hooks(Path::new(&p.codex_hooks), codex_hooks_text.as_deref());
+    let codex_hooks = check_codex_hooks(
+        Path::new(&p.codex_hooks),
+        codex_hooks_text.as_deref(),
+        codex_config_text.as_deref(),
+        &install_record.codex.plugin,
+    );
     let codex_config = check_codex_config(
         Path::new(&p.codex_config),
         codex_config_text.as_deref(),
@@ -128,6 +134,7 @@ pub fn dashboard_snapshot_for(home: &Path, user_home: &Path) -> DashboardSnapsho
     let claude_settings = check_claude_settings(
         Path::new(&p.claude_settings),
         claude_settings_text.as_deref(),
+        &install_record.claude.plugin,
     );
     let ipc = check_dir("ipc", "IPC", Path::new(&p.ipc));
     let store = check_dir("store", "Store", Path::new(&p.store));
@@ -345,7 +352,35 @@ fn check_dir(id: &str, label: &str, path: &Path) -> CheckRow {
     }
 }
 
-fn check_codex_hooks(path: &Path, existing: Option<&str>) -> CheckRow {
+fn check_codex_hooks(
+    path: &Path,
+    existing: Option<&str>,
+    codex_config: Option<&str>,
+    plugin: &Option<state::PluginRecord>,
+) -> CheckRow {
+    if let Some(row) = check_plugin_hooks("codex-hooks", "Codex hooks", plugin) {
+        if row.status != CheckStatus::Ok {
+            return row;
+        }
+        let config_text = codex_config.unwrap_or_default();
+        let enabled = duplicate::codex_v2_plugin_enabled(config_text);
+        let trusted = duplicate::codex_v2_plugin_trusted(config_text);
+        if enabled && trusted {
+            return row;
+        }
+        return CheckRow {
+            id: "codex-hooks".into(),
+            label: "Codex hooks".into(),
+            status: CheckStatus::Warning,
+            message: if enabled {
+                "v2 plugin hooks need trust in Codex /hooks".into()
+            } else {
+                "v2 plugin disabled in Codex config".into()
+            },
+            path: row.path,
+        };
+    }
+
     let Some(text) = existing else {
         return missing_row("codex-hooks", "Codex hooks", path);
     };
@@ -381,7 +416,15 @@ fn check_codex_hooks(path: &Path, existing: Option<&str>) -> CheckRow {
     }
 }
 
-fn check_claude_settings(path: &Path, existing: Option<&str>) -> CheckRow {
+fn check_claude_settings(
+    path: &Path,
+    existing: Option<&str>,
+    plugin: &Option<state::PluginRecord>,
+) -> CheckRow {
+    if let Some(row) = check_plugin_hooks("claude-settings", "Claude settings", plugin) {
+        return row;
+    }
+
     let Some(text) = existing else {
         return missing_row("claude-settings", "Claude settings", path);
     };
@@ -467,6 +510,45 @@ fn check_codex_config(path: &Path, existing: Option<&str>, ipc: &str) -> CheckRo
             message: format!("writable_roots={has_root}, AI_HANDOFF_HOME={has_home}"),
             path: Some(path.to_string_lossy().into_owned()),
         }
+    }
+}
+
+fn check_plugin_hooks(
+    id: &str,
+    label: &str,
+    plugin: &Option<state::PluginRecord>,
+) -> Option<CheckRow> {
+    let rec = plugin.as_ref()?;
+    let path = Path::new(&rec.root).join("hooks").join("hooks.json");
+    let text = match fs::read_to_string(&path) {
+        Ok(text) => text,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Some(missing_row(id, label, &path));
+        }
+        Err(error) => return Some(error_row(id, label, &path, error.to_string())),
+    };
+    let value = match serde_json::from_str::<Value>(&text) {
+        Ok(value) => value,
+        Err(error) => return Some(error_row(id, label, &path, format!("parse error: {error}"))),
+    };
+    let hooks = value.get("hooks").and_then(Value::as_object);
+    let installed = hooks
+        .map(|obj| {
+            EVENTS
+                .iter()
+                .all(|event| event_has_ai_handoff(obj.get(*event)))
+        })
+        .unwrap_or(false);
+    if installed {
+        Some(ok_row(id, label, &path, "v2 hooks installed"))
+    } else {
+        Some(CheckRow {
+            id: id.into(),
+            label: label.into(),
+            status: CheckStatus::Warning,
+            message: "v2 hooks missing or incomplete".into(),
+            path: Some(path.to_string_lossy().into_owned()),
+        })
     }
 }
 
@@ -642,6 +724,81 @@ mod tests {
         assert!(snapshot.codex_config.message.contains("parse"));
         assert_eq!(snapshot.claude_settings.status, CheckStatus::Error);
         assert!(snapshot.claude_settings.message.contains("parse"));
+    }
+
+    #[test]
+    fn plugin_hooks_are_ok_without_direct_hook_files() {
+        let temp = tempfile::tempdir().unwrap();
+        let ai_home = temp.path().join(".ai-handoff");
+        let codex_plugin = temp.path().join(".agents/plugins/ai-handoff");
+        let claude_plugin = temp.path().join(".claude/skills/ai-handoff");
+        let hooks = r#"{
+  "hooks": {
+    "SessionStart": [{"hooks": [{"_aiHandoff": true}]}],
+    "UserPromptSubmit": [{"hooks": [{"_aiHandoff": true}]}],
+    "PostToolUse": [{"hooks": [{"_aiHandoff": true}]}],
+    "Stop": [{"hooks": [{"_aiHandoff": true}]}]
+  }
+}"#;
+        write(&codex_plugin.join("hooks/hooks.json"), hooks);
+        write(&claude_plugin.join("hooks/hooks.json"), hooks);
+        write(
+            &temp.path().join(".codex/config.toml"),
+            r#"[plugins."ai-handoff@claude-codex-auto-handoff"]
+enabled = true
+
+[hooks.state."ai-handoff@claude-codex-auto-handoff:hooks/hooks.json:SessionStart:0:0"]
+trusted_hash = "sha256:trusted-v2"
+
+[hooks.state."ai-handoff@claude-codex-auto-handoff:hooks/hooks.json:UserPromptSubmit:0:0"]
+trusted_hash = "sha256:trusted-v2"
+
+[hooks.state."ai-handoff@claude-codex-auto-handoff:hooks/hooks.json:PostToolUse:0:0"]
+trusted_hash = "sha256:trusted-v2"
+
+[hooks.state."ai-handoff@claude-codex-auto-handoff:hooks/hooks.json:Stop:0:0"]
+trusted_hash = "sha256:trusted-v2"
+"#,
+        );
+        write(
+            &temp.path().join(".claude/settings.json"),
+            r#"{"model":"opus"}"#,
+        );
+        state::save(
+            &ai_home,
+            &state::InstallState {
+                codex: state::CodexState {
+                    plugin: Some(state::PluginRecord {
+                        root: codex_plugin.to_string_lossy().into_owned(),
+                        files: vec!["hooks/hooks.json".into()],
+                        marketplace_file: Some(
+                            temp.path()
+                                .join(".agents/plugins/marketplace.json")
+                                .to_string_lossy()
+                                .into_owned(),
+                        ),
+                    }),
+                    ..Default::default()
+                },
+                claude: state::ClaudeState {
+                    plugin: Some(state::PluginRecord {
+                        root: claude_plugin.to_string_lossy().into_owned(),
+                        files: vec!["hooks/hooks.json".into()],
+                        marketplace_file: None,
+                    }),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        let snapshot = dashboard_snapshot_for(&ai_home, temp.path());
+
+        assert_eq!(snapshot.codex_hooks.status, CheckStatus::Ok);
+        assert_eq!(snapshot.codex_hooks.message, "v2 hooks installed");
+        assert_eq!(snapshot.claude_settings.status, CheckStatus::Ok);
+        assert_eq!(snapshot.claude_settings.message, "v2 hooks installed");
     }
 
     #[test]

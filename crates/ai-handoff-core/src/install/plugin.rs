@@ -32,20 +32,29 @@ const CODEX_MANIFEST: &str = include_str!("../../../../.codex-plugin/plugin.json
 /// The skills shipped in every bundle: `(name, SKILL.md contents)`.
 const SKILLS: &[(&str, &str)] = &[
     (
-        "handoff-checkpoint",
-        include_str!("../../../../skills/handoff-checkpoint/SKILL.md"),
+        "handoff",
+        include_str!("../../../../skills/handoff/SKILL.md"),
+    ),
+    (
+        "handoff-config",
+        include_str!("../../../../skills/handoff-config/SKILL.md"),
     ),
     (
         "handoff-doctor",
         include_str!("../../../../skills/handoff-doctor/SKILL.md"),
     ),
     (
-        "handoff-config",
-        include_str!("../../../../skills/handoff-config/SKILL.md"),
+        "handoff-checkpoint",
+        include_str!("../../../../skills/handoff-checkpoint/SKILL.md"),
     ),
 ];
 
-const LEGACY_USER_SKILLS: &[&str] = &["handoff"];
+const LEGACY_USER_SKILLS: &[&str] = &[
+    "handoff",
+    "handoff-config",
+    "handoff-doctor",
+    "handoff-checkpoint",
+];
 
 // ---------------------------------------------------------------------------
 // hooks/hooks.json generation
@@ -224,37 +233,11 @@ pub fn generate_bundle(
     })
 }
 
-/// Generate the plain user skills that expose the three `/handoff ...` entries
-/// outside the plugin namespace. Each directory name starts with `handoff-`, so
-/// typing `/handoff` filters the listing to these entries in skill pickers.
-pub fn generate_handoff_user_skills(skills_root: &Path) -> std::io::Result<PluginRecord> {
-    std::fs::create_dir_all(skills_root)?;
-    remove_legacy_user_skills(skills_root)?;
-
-    let mut files = Vec::new();
-    for (name, body) in SKILLS {
-        let target_root = skills_root.join(name);
-        if let Some(existing) = read_existing_skill(&target_root)? {
-            if existing != *body && !existing.contains("ai-handoff") {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::AlreadyExists,
-                    format!(
-                        "refusing to overwrite existing non-ai-handoff skill at {}",
-                        target_root.join("SKILL.md").display()
-                    ),
-                ));
-            }
-        }
-        let rel = format!("{name}/SKILL.md");
-        write_text_atomic(&skills_root.join(&rel), body)?;
-        files.push(rel);
-    }
-
-    Ok(PluginRecord {
-        root: skills_root.to_string_lossy().into_owned(),
-        files,
-        marketplace_file: None,
-    })
+/// Remove old plain user skills created by previous ai-handoff plugin-mode
+/// installs. Current plugin mode exposes skills only through the plugin bundle,
+/// which keeps the UI list namespaced as `ai-handoff:<skill>`.
+pub fn remove_handoff_user_skills(skills_root: &Path) -> std::io::Result<()> {
+    remove_legacy_user_skills(skills_root)
 }
 
 fn remove_legacy_user_skills(skills_root: &Path) -> std::io::Result<()> {
@@ -289,6 +272,7 @@ const MARKETPLACE_PLUGIN_NAME: &str = "ai-handoff";
 /// key (`<plugin>@<marketplace>`). Kept in sync with
 /// [`super::codex_config::PLUGIN_ENABLE_KEY`].
 const MARKETPLACE_NAME: &str = "claude-codex-auto-handoff";
+const MARKETPLACE_PLUGIN_PATH: &str = "./.agents/plugins/ai-handoff";
 
 /// Error from the personal-marketplace merge/remove helpers.
 #[derive(Debug, thiserror::Error)]
@@ -302,9 +286,9 @@ pub enum MarketplaceError {
 /// Merge our `ai-handoff` entry into the personal `marketplace.json` text.
 ///
 /// Parses `existing` (or seeds a fresh `{name, plugins:[]}` document when
-/// `None`), then appends our local-source plugin entry **only if absent** —
-/// never duplicating it and never touching any foreign entry. Propagates a
-/// parse error so the caller aborts rather than clobbering a malformed file.
+/// `None`), then upserts our local-source plugin entry without duplicating it.
+/// Foreign entries are preserved. Propagates a parse error so the caller aborts
+/// rather than clobbering a malformed file.
 ///
 /// Returns the pretty-printed JSON text to write.
 pub fn merge_marketplace_entry(existing: Option<&str>) -> Result<String, MarketplaceError> {
@@ -339,15 +323,19 @@ pub fn merge_marketplace_entry(existing: Option<&str>) -> Result<String, Marketp
         .as_array_mut()
         .ok_or(MarketplaceError::UnexpectedShape("plugins is not an array"))?;
 
-    let already = plugins
+    let plugin_entry = json!({
+        "name": MARKETPLACE_PLUGIN_NAME,
+        "source": { "source": "local", "path": MARKETPLACE_PLUGIN_PATH },
+        "policy": { "installation": "AVAILABLE", "authentication": "ON_INSTALL" },
+        "category": "Developer Tools"
+    });
+    let existing_index = plugins
         .iter()
-        .any(|p| p.get("name").and_then(Value::as_str) == Some(MARKETPLACE_PLUGIN_NAME));
-    if !already {
-        plugins.push(json!({
-            "name": MARKETPLACE_PLUGIN_NAME,
-            "source": { "source": "local", "path": "./ai-handoff" },
-            "category": "Developer Tools"
-        }));
+        .position(|p| p.get("name").and_then(Value::as_str) == Some(MARKETPLACE_PLUGIN_NAME));
+    if let Some(index) = existing_index {
+        plugins[index] = plugin_entry;
+    } else {
+        plugins.push(plugin_entry);
     }
 
     Ok(serde_json::to_string_pretty(&root).expect("serialization cannot fail"))
@@ -395,7 +383,12 @@ mod tests {
         let skill_names: Vec<&str> = SKILLS.iter().map(|(name, _)| *name).collect();
         assert_eq!(
             skill_names,
-            ["handoff-checkpoint", "handoff-doctor", "handoff-config"]
+            [
+                "handoff",
+                "handoff-config",
+                "handoff-doctor",
+                "handoff-checkpoint"
+            ]
         );
 
         // hooks/hooks.json parses with all 4 events.
@@ -427,6 +420,7 @@ mod tests {
             .files
             .contains(&".claude-plugin/plugin.json".to_string()));
         assert!(rec.files.contains(&"hooks/hooks.json".to_string()));
+        assert!(rec.files.contains(&"skills/handoff/SKILL.md".to_string()));
         assert!(rec
             .files
             .contains(&"skills/handoff-checkpoint/SKILL.md".to_string()));
@@ -441,34 +435,33 @@ mod tests {
     }
 
     #[test]
-    fn generate_handoff_user_skills_writes_three_subcommand_entries() {
+    fn remove_handoff_user_skills_removes_only_managed_plain_entries() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().join("skills");
+        std::fs::create_dir_all(root.join("handoff-config")).unwrap();
+        std::fs::create_dir_all(root.join("handoff-doctor")).unwrap();
+        std::fs::create_dir_all(root.join("other-skill")).unwrap();
+        std::fs::write(
+            root.join("handoff-config/SKILL.md"),
+            include_str!("../../../../skills/handoff-config/SKILL.md"),
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("handoff-doctor/SKILL.md"),
+            "---\nname: handoff-doctor\ndescription: user skill\n---\nforeign\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("other-skill/SKILL.md"),
+            "---\nname: other-skill\ndescription: user skill\n---\nforeign\n",
+        )
+        .unwrap();
 
-        let rec = generate_handoff_user_skills(&root).unwrap();
+        remove_handoff_user_skills(&root).unwrap();
 
-        assert_eq!(
-            read(&root, "handoff-checkpoint/SKILL.md"),
-            include_str!("../../../../skills/handoff-checkpoint/SKILL.md")
-        );
-        assert_eq!(
-            read(&root, "handoff-doctor/SKILL.md"),
-            include_str!("../../../../skills/handoff-doctor/SKILL.md")
-        );
-        assert_eq!(
-            read(&root, "handoff-config/SKILL.md"),
-            include_str!("../../../../skills/handoff-config/SKILL.md")
-        );
-        assert_eq!(rec.root, root.to_string_lossy().into_owned());
-        assert_eq!(
-            rec.files,
-            [
-                "handoff-checkpoint/SKILL.md",
-                "handoff-doctor/SKILL.md",
-                "handoff-config/SKILL.md"
-            ]
-        );
-        assert!(rec.marketplace_file.is_none());
+        assert!(!root.join("handoff-config").exists());
+        assert!(root.join("handoff-doctor/SKILL.md").exists());
+        assert!(root.join("other-skill/SKILL.md").exists());
     }
 
     #[test]
@@ -560,7 +553,9 @@ mod tests {
         assert_eq!(plugins.len(), 1);
         assert_eq!(plugins[0]["name"], MARKETPLACE_PLUGIN_NAME);
         assert_eq!(plugins[0]["source"]["source"], "local");
-        assert_eq!(plugins[0]["source"]["path"], "./ai-handoff");
+        assert_eq!(plugins[0]["source"]["path"], MARKETPLACE_PLUGIN_PATH);
+        assert_eq!(plugins[0]["policy"]["installation"], "AVAILABLE");
+        assert_eq!(plugins[0]["policy"]["authentication"], "ON_INSTALL");
         assert_eq!(plugins[0]["category"], "Developer Tools");
     }
 
@@ -583,6 +578,17 @@ mod tests {
                 .count(),
             1
         );
+    }
+
+    #[test]
+    fn merge_marketplace_updates_existing_ai_handoff_entry() {
+        let src = r#"{"plugins":[{"name":"ai-handoff","source":{"source":"local","path":"./ai-handoff"},"category":"Old"}]}"#;
+        let out = merge_marketplace_entry(Some(src)).unwrap();
+        let v: Value = serde_json::from_str(&out).unwrap();
+        let plugin = &v["plugins"].as_array().unwrap()[0];
+        assert_eq!(plugin["source"]["path"], MARKETPLACE_PLUGIN_PATH);
+        assert_eq!(plugin["policy"]["installation"], "AVAILABLE");
+        assert_eq!(plugin["category"], "Developer Tools");
     }
 
     #[test]

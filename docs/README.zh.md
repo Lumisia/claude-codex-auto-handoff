@@ -85,13 +85,15 @@ ai-handoff doctor
 
 | 命令 | 作用 | 何时使用 |
 |---|---|---|
-| `handoff-checkpoint` | 把当前工作保存为 handoff capsule。 | 现在想把工作交给另一个 agent 时 |
-| `handoff-doctor` | 检查安装状态、hook、daemon、IPC 和 capsule 健康状态。 | hook 失败、Codex 显示 hook 错误或安装异常时 |
-| `handoff-config` | 查看或修改 AI Handoff 共享设置。 | 想修改 threshold、mode、language 或 display 设置时 |
+| `handoff` | 获取并消费当前项目中等待处理的 handoff capsule。 | 需要继续另一个 agent 留下的工作时 |
+| `handoff config` | 查看或修改 AI Handoff 共享设置。 | 想修改 threshold、mode、language 或 display 设置时 |
+| `handoff doctor` | 检查安装状态、hook、daemon、IPC 和 capsule 健康状态。 | hook 失败、Codex 显示 hook 错误或安装异常时 |
+| `handoff checkpoint` | 把当前工作保存为 handoff capsule。 | 现在想把工作交给另一个 agent 时 |
 
 你也可以在终端运行同样的操作：
 
 ```sh
+ai-handoff hook session-start --agent <codex|claude-code>
 ai-handoff checkpoint --message "work snapshot"
 ai-handoff doctor
 ai-handoff config list

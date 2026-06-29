@@ -7,6 +7,7 @@ const required = [
   '.claude-plugin/plugin.json', '.codex-plugin/plugin.json',
   '.claude-plugin/marketplace.json', '.agents/plugins/marketplace.json',
   'scripts/install.sh',
+  'skills/handoff/SKILL.md',
   'skills/handoff-checkpoint/SKILL.md',
   'skills/handoff-doctor/SKILL.md',
   'skills/handoff-config/SKILL.md',
@@ -24,7 +25,7 @@ if (claude.name !== codex.name || claude.version !== codex.version || pkg.versio
 if (claude.experimental?.monitors || codex.hooks) {
   throw new Error('source plugin must not expose legacy v1 monitors or hook templates');
 }
-for (const skill of ['handoff-checkpoint', 'handoff-doctor', 'handoff-config']) {
+for (const skill of ['handoff', 'handoff-config', 'handoff-doctor', 'handoff-checkpoint']) {
   const text = readFileSync(join(root, 'skills', skill, 'SKILL.md'), 'utf8');
   if (!text.startsWith('---') || !text.includes('name:') || !text.includes('description:')) {
     throw new Error(`invalid skill frontmatter: ${skill}`);

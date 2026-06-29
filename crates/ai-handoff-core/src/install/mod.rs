@@ -12,8 +12,7 @@ pub mod state;
 pub use backup::{backup_file, backup_path};
 pub use detect::{detect_agents, targets_for, AgentPresence, InstallTargets};
 pub use plugin::{
-    generate_bundle, generate_handoff_user_skills, merge_marketplace_entry,
-    remove_marketplace_entry,
+    generate_bundle, merge_marketplace_entry, remove_handoff_user_skills, remove_marketplace_entry,
 };
 pub use state::{
     load, save, state_path, AutostartKind, AutostartState, ClaudeState, ClaudeStatuslineState,
@@ -339,7 +338,7 @@ pub fn apply_install(
             // Generate the bundle first; record its files for surgical uninstall.
             let mut record =
                 generate_bundle(crate::capsule::AgentKind::Codex, &exe, &t.codex_plugin_dir)?;
-            let handoff_skill = generate_handoff_user_skills(&t.codex_handoff_skills_dir)?;
+            remove_handoff_user_skills(&t.codex_handoff_skills_dir)?;
             // Marketplace registration (never-clobber merge computed above).
             write_with_backup(&t.agents_marketplace, &marketplace_after, now)?;
             record.marketplace_file = Some(t.agents_marketplace.to_string_lossy().into_owned());
@@ -350,7 +349,6 @@ pub fn apply_install(
                 backup: config_backup,
             });
             st.codex.plugin = Some(record);
-            st.codex.handoff_skill = Some(handoff_skill);
             record_codex_config(&mut st, &config_edit, &prior);
         }
     }
@@ -367,9 +365,8 @@ pub fn apply_install(
                 &exe,
                 &t.claude_plugin_dir,
             )?;
-            let handoff_skill = generate_handoff_user_skills(&t.claude_handoff_skills_dir)?;
+            remove_handoff_user_skills(&t.claude_handoff_skills_dir)?;
             st.claude.plugin = Some(record);
-            st.claude.handoff_skill = Some(handoff_skill);
         }
 
         let settings_backup = write_with_backup(&t.claude_settings, &settings_after_all, now)?;
@@ -875,6 +872,18 @@ mod tests {
             codex: true,
             claude: true,
         };
+        std::fs::create_dir_all(t.claude_handoff_skills_dir.join("handoff-config")).unwrap();
+        std::fs::write(
+            t.claude_handoff_skills_dir.join("handoff-config/SKILL.md"),
+            include_str!("../../../../skills/handoff-config/SKILL.md"),
+        )
+        .unwrap();
+        std::fs::create_dir_all(t.codex_handoff_skills_dir.join("handoff-config")).unwrap();
+        std::fs::write(
+            t.codex_handoff_skills_dir.join("handoff-config/SKILL.md"),
+            include_str!("../../../../skills/handoff-config/SKILL.md"),
+        )
+        .unwrap();
 
         let st = apply_install(&t, &agents, Utc::now(), true).unwrap();
 
@@ -884,6 +893,7 @@ mod tests {
             .join(".claude-plugin/plugin.json")
             .exists());
         assert!(t.claude_plugin_dir.join("hooks/hooks.json").exists());
+        assert!(t.claude_plugin_dir.join("skills/handoff/SKILL.md").exists());
         assert!(t
             .claude_plugin_dir
             .join("skills/handoff-checkpoint/SKILL.md")
@@ -896,41 +906,32 @@ mod tests {
             .claude_plugin_dir
             .join("skills/handoff-config/SKILL.md")
             .exists());
-        assert!(t
+        assert!(!t.claude_handoff_skills_dir.join("handoff").exists());
+        assert!(!t
             .claude_handoff_skills_dir
-            .join("handoff-checkpoint/SKILL.md")
+            .join("handoff-checkpoint")
             .exists());
-        assert!(t
-            .claude_handoff_skills_dir
-            .join("handoff-doctor/SKILL.md")
-            .exists());
-        assert!(t
-            .claude_handoff_skills_dir
-            .join("handoff-config/SKILL.md")
-            .exists());
+        assert!(!t.claude_handoff_skills_dir.join("handoff-doctor").exists());
+        assert!(!t.claude_handoff_skills_dir.join("handoff-config").exists());
         assert!(t
             .codex_plugin_dir
             .join(".codex-plugin/plugin.json")
             .exists());
         assert!(t.codex_plugin_dir.join("hooks/hooks.json").exists());
-        assert!(t
+        assert!(t.codex_plugin_dir.join("skills/handoff/SKILL.md").exists());
+        assert!(!t.codex_handoff_skills_dir.join("handoff").exists());
+        assert!(!t
             .codex_handoff_skills_dir
-            .join("handoff-checkpoint/SKILL.md")
+            .join("handoff-checkpoint")
             .exists());
-        assert!(t
-            .codex_handoff_skills_dir
-            .join("handoff-doctor/SKILL.md")
-            .exists());
-        assert!(t
-            .codex_handoff_skills_dir
-            .join("handoff-config/SKILL.md")
-            .exists());
+        assert!(!t.codex_handoff_skills_dir.join("handoff-doctor").exists());
+        assert!(!t.codex_handoff_skills_dir.join("handoff-config").exists());
 
         // Plugin records persisted.
         assert!(st.claude.plugin.is_some());
-        assert!(st.claude.handoff_skill.is_some());
+        assert!(st.claude.handoff_skill.is_none());
         let codex_rec = st.codex.plugin.as_ref().unwrap();
-        assert!(st.codex.handoff_skill.is_some());
+        assert!(st.codex.handoff_skill.is_none());
         assert_eq!(
             codex_rec.marketplace_file.as_deref(),
             Some(t.agents_marketplace.to_string_lossy().as_ref())
@@ -1014,12 +1015,14 @@ mod tests {
         // Bundle dirs deleted.
         assert!(!t.claude_plugin_dir.exists());
         assert!(!t.codex_plugin_dir.exists());
+        assert!(!t.claude_handoff_skills_dir.join("handoff").exists());
         assert!(!t
             .claude_handoff_skills_dir
             .join("handoff-checkpoint")
             .exists());
         assert!(!t.claude_handoff_skills_dir.join("handoff-doctor").exists());
         assert!(!t.claude_handoff_skills_dir.join("handoff-config").exists());
+        assert!(!t.codex_handoff_skills_dir.join("handoff").exists());
         assert!(!t
             .codex_handoff_skills_dir
             .join("handoff-checkpoint")

@@ -51,6 +51,7 @@ ai-handoff install --yes
 ### Windows (PowerShell)
 
 Run this in PowerShell. It downloads the CLI, adds it to your user PATH, and runs the installer.
+By default, `latest` means the highest stable `vX.Y.Z` GitHub Release, not GitHub's "Latest" badge.
 
 ```powershell
 Set-ExecutionPolicy Bypass -Scope Process -Force; irm https://raw.githubusercontent.com/Lumisia/aho__ai-handoff/master/scripts/install.ps1 | iex
@@ -62,9 +63,16 @@ To pass options (skip prompts, pick one agent, pin a version), fetch the script 
 & ([scriptblock]::Create((irm https://raw.githubusercontent.com/Lumisia/aho__ai-handoff/master/scripts/install.ps1))) -Yes -Only codex
 ```
 
+Pin a release when you need repeatable installs:
+
+```powershell
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/Lumisia/aho__ai-handoff/master/scripts/install.ps1))) -Yes -Version v2.0.6
+```
+
 ### Shell Installer
 
 Use this on macOS, Linux, WSL, or Git Bash.
+By default, `latest` means the highest stable `vX.Y.Z` GitHub Release, not GitHub's "Latest" badge.
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/Lumisia/aho__ai-handoff/master/scripts/install.sh | sh -s -- --yes

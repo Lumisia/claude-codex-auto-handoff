@@ -10,7 +10,9 @@
 #
 # This downloads the ai-handoff CLI from GitHub Releases, installs it to
 # %USERPROFILE%\.ai-handoff\bin, adds that folder to your user PATH, then runs
-# `ai-handoff install`. It mirrors scripts/install.sh for macOS/Linux/WSL.
+# `ai-handoff install`. The default "latest" version resolves to the highest
+# stable vX.Y.Z release tag, not GitHub's mutable "Latest" badge. It mirrors
+# scripts/install.sh for macOS/Linux/WSL.
 
 param(
     [switch]$Yes,
@@ -36,6 +38,49 @@ if ($WithGui) {
     Write-Warning '-WithGui is not available from this CLI installer yet.'
 }
 
+function Resolve-LatestReleaseTag {
+    param([string]$RepoName)
+
+    $api = "https://api.github.com/repos/$RepoName/releases?per_page=100"
+    try {
+        $headers = @{
+            Accept = 'application/vnd.github+json'
+            'User-Agent' = 'ai-handoff-installer'
+        }
+        $releases = @(Invoke-RestMethod -Uri $api -Headers $headers -UseBasicParsing)
+    }
+    catch {
+        throw @"
+Could not resolve the latest ai-handoff release.
+URL: $api
+Error: $($_.Exception.Message)
+"@
+    }
+
+    $candidates = @()
+    foreach ($release in $releases) {
+        if ($release.draft -or $release.prerelease) { continue }
+
+        $tag = [string]$release.tag_name
+        if ($tag -match '^v?(\d+)\.(\d+)\.(\d+)$') {
+            $published = [datetime]::MinValue
+            if ($release.published_at) { $published = [datetime]$release.published_at }
+            $candidates += [pscustomobject]@{
+                Tag = $tag
+                Version = [version]"$($Matches[1]).$($Matches[2]).$($Matches[3])"
+                Published = $published
+            }
+        }
+    }
+
+    $latest = $candidates | Sort-Object -Property Version, Published -Descending | Select-Object -First 1
+    if (-not $latest) {
+        throw "Could not find a stable vX.Y.Z release for $RepoName."
+    }
+
+    return $latest.Tag
+}
+
 # --- Resolve the release artifact for this machine ----------------------------
 
 $archRaw = $env:PROCESSOR_ARCHITECTURE
@@ -48,12 +93,12 @@ switch ($archRaw) {
 }
 
 $artifact = "ai-handoff-cli-windows-$arch.zip"
+$releaseVersion = $Version
 if ($Version -eq 'latest') {
-    $url = "https://github.com/$repo/releases/latest/download/$artifact"
+    $releaseVersion = Resolve-LatestReleaseTag -RepoName $repo
+    Write-Host "Resolved latest release: $releaseVersion"
 }
-else {
-    $url = "https://github.com/$repo/releases/download/$Version/$artifact"
-}
+$url = "https://github.com/$repo/releases/download/$releaseVersion/$artifact"
 
 # --- Paths --------------------------------------------------------------------
 

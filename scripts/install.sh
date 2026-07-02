@@ -14,6 +14,9 @@ Usage:
 
 Installs the ai-handoff CLI from GitHub Releases, then runs:
   ai-handoff install
+
+The default "latest" version resolves to the highest stable vX.Y.Z release
+tag, not GitHub's mutable "Latest" badge.
 EOF
 }
 
@@ -95,11 +98,63 @@ else
 fi
 
 artifact="ai-handoff-cli-${os_name}-${arch_name}.${ext}"
+resolve_latest_release_tag() {
+  api="https://api.github.com/repos/${repo}/releases?per_page=100"
+  json="$(curl -fsSL \
+    -H "Accept: application/vnd.github+json" \
+    -H "User-Agent: ai-handoff-installer" \
+    "$api")" || {
+      echo "could not resolve latest release from $api" >&2
+      exit 1
+    }
+
+  tags="$(printf '%s\n' "$json" | awk '
+    /"tag_name"[[:space:]]*:/ {
+      tag = $0
+      sub(/^.*"tag_name"[[:space:]]*:[[:space:]]*"/, "", tag)
+      sub(/".*$/, "", tag)
+    }
+    /"draft"[[:space:]]*:/ {
+      draft = ($0 ~ /true/)
+    }
+    /"prerelease"[[:space:]]*:/ {
+      prerelease = ($0 ~ /true/)
+      if (!draft && !prerelease && tag ~ /^v?[0-9]+\.[0-9]+\.[0-9]+$/) {
+        print tag
+      }
+      tag = ""
+      draft = 0
+      prerelease = 0
+    }
+  ')"
+  latest="$(
+    printf '%s\n' "$tags" |
+      while IFS= read -r tag; do
+        [ -n "$tag" ] || continue
+        clean=${tag#v}
+        old_ifs=$IFS
+        IFS=.
+        set -- $clean
+        IFS=$old_ifs
+        printf '%09d.%09d.%09d %s\n' "$1" "$2" "$3" "$tag"
+      done |
+      sort -r |
+      sed -n '1s/^[^ ]* //p'
+  )"
+
+  [ -n "$latest" ] || {
+    echo "could not find a stable vX.Y.Z release for ${repo}" >&2
+    exit 1
+  }
+  printf '%s\n' "$latest"
+}
+
+release_version="$version"
 if [ "$version" = "latest" ]; then
-  url="https://github.com/${repo}/releases/latest/download/${artifact}"
-else
-  url="https://github.com/${repo}/releases/download/${version}/${artifact}"
+  release_version="$(resolve_latest_release_tag)"
+  echo "Resolved latest release: $release_version"
 fi
+url="https://github.com/${repo}/releases/download/${release_version}/${artifact}"
 
 home="${AI_HANDOFF_HOME:-$HOME/.ai-handoff}"
 bin_dir="$home/bin"

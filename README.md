@@ -66,7 +66,7 @@ To pass options (skip prompts, pick one agent, pin a version), fetch the script 
 Pin a release when you need repeatable installs:
 
 ```powershell
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/Lumisia/aho__ai-handoff/master/scripts/install.ps1))) -Yes -Version v2.0.6
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/Lumisia/aho__ai-handoff/master/scripts/install.ps1))) -Yes -Version v2.0.7
 ```
 
 ### Shell Installer

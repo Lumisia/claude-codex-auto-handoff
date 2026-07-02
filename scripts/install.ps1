@@ -2,7 +2,7 @@
 #
 # One-line install (downloads and runs this script):
 #
-#   Set-ExecutionPolicy Bypass -Scope Process -Force; irm https://raw.githubusercontent.com/Lumisia/aho__ai-handoff/master/scripts/install.ps1 | iex
+#   Set-ExecutionPolicy Bypass -Scope Process -Force; & ([scriptblock]::Create((irm https://raw.githubusercontent.com/Lumisia/aho__ai-handoff/master/scripts/install.ps1))) -Yes
 #
 # To pass options, fetch the script into a scriptblock instead:
 #
@@ -47,7 +47,16 @@ function Resolve-LatestReleaseTag {
             Accept = 'application/vnd.github+json'
             'User-Agent' = 'ai-handoff-installer'
         }
-        $releases = @(Invoke-RestMethod -Uri $api -Headers $headers -UseBasicParsing)
+        $response = Invoke-RestMethod -Uri $api -Headers $headers -UseBasicParsing
+        if ($response -is [System.Array]) {
+            $releases = $response
+        }
+        elseif ($null -ne $response) {
+            $releases = @($response)
+        }
+        else {
+            $releases = @()
+        }
     }
     catch {
         throw @"

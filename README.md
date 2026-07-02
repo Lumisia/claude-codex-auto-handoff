@@ -54,10 +54,10 @@ Run this in PowerShell. It downloads the CLI, adds it to your user PATH, and run
 By default, `latest` means the highest stable `vX.Y.Z` GitHub Release, not GitHub's "Latest" badge.
 
 ```powershell
-Set-ExecutionPolicy Bypass -Scope Process -Force; irm https://raw.githubusercontent.com/Lumisia/aho__ai-handoff/master/scripts/install.ps1 | iex
+Set-ExecutionPolicy Bypass -Scope Process -Force; & ([scriptblock]::Create((irm https://raw.githubusercontent.com/Lumisia/aho__ai-handoff/master/scripts/install.ps1))) -Yes
 ```
 
-To pass options (skip prompts, pick one agent, pin a version), fetch the script into a scriptblock:
+To pass more options (pick one agent, pin a version), keep the same scriptblock form:
 
 ```powershell
 & ([scriptblock]::Create((irm https://raw.githubusercontent.com/Lumisia/aho__ai-handoff/master/scripts/install.ps1))) -Yes -Only codex

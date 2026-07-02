@@ -55,10 +55,10 @@ ai-handoff install --yes
 PowerShell에서 실행합니다. CLI를 내려받아 사용자 PATH에 추가하고 설치 프로그램을 실행합니다.
 
 ```powershell
-Set-ExecutionPolicy Bypass -Scope Process -Force; irm https://raw.githubusercontent.com/Lumisia/aho__ai-handoff/master/scripts/install.ps1 | iex
+Set-ExecutionPolicy Bypass -Scope Process -Force; & ([scriptblock]::Create((irm https://raw.githubusercontent.com/Lumisia/aho__ai-handoff/master/scripts/install.ps1))) -Yes
 ```
 
-옵션을 넘기려면(프롬프트 생략, 한 에이전트만, 버전 고정) 스크립트를 scriptblock으로 받아 실행합니다.
+추가 옵션을 넘기려면(한 에이전트만, 버전 고정) 같은 scriptblock 형태를 사용합니다.
 
 ```powershell
 & ([scriptblock]::Create((irm https://raw.githubusercontent.com/Lumisia/aho__ai-handoff/master/scripts/install.ps1))) -Yes -Only codex

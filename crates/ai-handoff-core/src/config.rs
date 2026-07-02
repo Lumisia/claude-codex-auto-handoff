@@ -18,6 +18,7 @@ use crate::trigger::{BurnRate, TriggerMode};
 pub struct Config {
     pub triggers: Triggers,
     pub autostart: Autostart,
+    pub daemon: DaemonConfig,
     pub statusline: Statusline,
     pub language: Language,
     pub capsule: CapsuleConfig,
@@ -47,6 +48,30 @@ pub struct Statusline {
 impl Default for Statusline {
     fn default() -> Self {
         Self { show: true }
+    }
+}
+
+pub const DEFAULT_DAEMON_IDLE_TIMEOUT_SECONDS: u64 = 60;
+pub const MAX_DAEMON_IDLE_TIMEOUT_SECONDS: u64 = 3600;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(default)]
+pub struct DaemonConfig {
+    pub idle_timeout_seconds: u64,
+}
+
+impl Default for DaemonConfig {
+    fn default() -> Self {
+        Self {
+            idle_timeout_seconds: DEFAULT_DAEMON_IDLE_TIMEOUT_SECONDS,
+        }
+    }
+}
+
+impl DaemonConfig {
+    pub fn idle_timeout_seconds(self) -> u64 {
+        self.idle_timeout_seconds
+            .clamp(1, MAX_DAEMON_IDLE_TIMEOUT_SECONDS)
     }
 }
 
@@ -600,6 +625,8 @@ enum ValueKind {
     PosFloat,
     /// A small positive item count.
     Count,
+    /// Positive whole seconds.
+    Seconds,
     /// One of `off` / `ask` / `auto`.
     Mode,
     /// A UI language code: `en` / `ko` / `ja` / `zh`.
@@ -625,6 +652,7 @@ const SETTABLE: &[(&str, ValueKind)] = &[
         ValueKind::PosFloat,
     ),
     ("autostart.enabled", ValueKind::Bool),
+    ("daemon.idle_timeout_seconds", ValueKind::Seconds),
     ("statusline.show", ValueKind::Bool),
     ("language", ValueKind::Lang),
     ("capsule.format", ValueKind::CapsuleFormat),
@@ -674,6 +702,8 @@ pub enum KeyKind {
     PosFloat,
     /// Positive count in `1..=50`.
     Count,
+    /// Positive seconds in `1..=3600`.
+    Seconds,
     /// `off` / `ask` / `auto`.
     Mode,
     /// `en` / `ko` / `ja` / `zh`.
@@ -699,6 +729,7 @@ pub fn key_kind(key: &str) -> Option<KeyKind> {
             ValueKind::Percent => KeyKind::Percent,
             ValueKind::PosFloat => KeyKind::PosFloat,
             ValueKind::Count => KeyKind::Count,
+            ValueKind::Seconds => KeyKind::Seconds,
             ValueKind::Mode => KeyKind::Mode,
             ValueKind::Lang => KeyKind::Lang,
             ValueKind::CapsuleFormat => KeyKind::CapsuleFormat,
@@ -773,6 +804,15 @@ impl ValueKind {
                     .map_err(|_| invalid("expected a positive integer"))?;
                 if n == 0 || n > MAX_CAPSULE_ITEM_LIMIT {
                     return Err(invalid("must be between 1 and 50"));
+                }
+                value(n as i64)
+            }
+            ValueKind::Seconds => {
+                let n: u64 = raw
+                    .parse()
+                    .map_err(|_| invalid("expected a positive integer"))?;
+                if n == 0 || n > MAX_DAEMON_IDLE_TIMEOUT_SECONDS {
+                    return Err(invalid("must be between 1 and 3600"));
                 }
                 value(n as i64)
             }
@@ -937,6 +977,7 @@ pub fn get_value(cfg: &Config, key: &str) -> Result<String, ConfigWriteError> {
         "triggers.five_hour.burn_rate.enabled" => f.burn_rate.enabled.to_string(),
         "triggers.five_hour.burn_rate.runway_minutes" => fmt_f64(f.burn_rate.runway_minutes),
         "autostart.enabled" => cfg.autostart.enabled.to_string(),
+        "daemon.idle_timeout_seconds" => cfg.daemon.idle_timeout_seconds().to_string(),
         "statusline.show" => cfg.statusline.show.to_string(),
         "language" => lang_str(cfg.language).to_string(),
         "capsule.format" => capsule_format_str(cfg.capsule.format).to_string(),
@@ -1229,6 +1270,36 @@ mod tests {
         assert_eq!(c.triggers.five_hour.threshold_percent, 80.0);
     }
 
+    #[test]
+    fn daemon_idle_timeout_defaults_and_is_editable() {
+        assert_eq!(Config::default().daemon.idle_timeout_seconds, 60);
+        assert_eq!(
+            get_value(&Config::default(), "daemon.idle_timeout_seconds").unwrap(),
+            "60"
+        );
+        assert_eq!(
+            key_kind("daemon.idle_timeout_seconds"),
+            Some(KeyKind::Seconds)
+        );
+
+        let text = set_value(None, "daemon.idle_timeout_seconds", "120").unwrap();
+        let cfg = parse(&text).unwrap();
+        assert_eq!(cfg.daemon.idle_timeout_seconds, 120);
+        assert_eq!(
+            get_value(&cfg, "daemon.idle_timeout_seconds").unwrap(),
+            "120"
+        );
+
+        assert!(matches!(
+            set_value(None, "daemon.idle_timeout_seconds", "0").unwrap_err(),
+            ConfigWriteError::InvalidValue { .. }
+        ));
+        assert!(matches!(
+            set_value(None, "daemon.idle_timeout_seconds", "3601").unwrap_err(),
+            ConfigWriteError::InvalidValue { .. }
+        ));
+    }
+
     // --- write API -------------------------------------------------------
 
     #[test]
@@ -1376,7 +1447,7 @@ enabled = true
         for key in settable_keys() {
             assert!(get_value(&cfg, key).is_ok(), "key {key} not readable");
         }
-        assert_eq!(settable_keys().count(), 20);
+        assert_eq!(settable_keys().count(), 21);
     }
 
     #[test]

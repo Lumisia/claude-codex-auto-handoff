@@ -31,12 +31,17 @@ ai-handoff doctor
 ai-handoff config list
 ai-handoff config get triggers.five_hour.mode
 ai-handoff config set triggers.five_hour.threshold_percent 80
+ai-handoff config get daemon.idle_timeout_seconds
+ai-handoff config set daemon.idle_timeout_seconds 60
 ai-handoff usage
 ai-handoff account status
 ai-handoff daemon run
+ai-handoff daemon run --stay-alive
 ai-handoff autostart status
 ai-handoff uninstall --keep-store
 ```
+
+`ai-handoff daemon run` は要求がない場合、設定された idle timeout 後に終了します。既定値は 60 秒です。デバッグや手動確認で常駐させたい場合だけ `ai-handoff daemon run --stay-alive` を使います。
 
 ## ファイル構成
 
@@ -102,6 +107,6 @@ cargo build --release -p ai-handoff-cli
 |---|---|
 | Codex が hook error を表示する | `/hooks` を開き、AI Handoff hooks を trust してから `ai-handoff doctor` を実行します。 |
 | hook が code 1 で終了する | 古い v1 Node hook または古い plugin cache を確認します。`ai-handoff install --yes` で再インストールします。 |
-| daemon が offline | 1 つのターミナルで `ai-handoff daemon run` を実行し、別のターミナルで `ai-handoff doctor` を実行します。 |
+| daemon が offline | hook が通常は自動起動します。手動確認では 1 つのターミナルで `ai-handoff daemon run --stay-alive` を実行し、別のターミナルで `ai-handoff doctor` を実行します。 |
 | usage が空 | AI Handoff はローカルログだけを推定します。Claude Code または Codex を先に使ってから `ai-handoff usage` を実行します。 |
 | Windows build が exe を置き換えられない | 実行中の `ai-handoff.exe` process を止めてから再度 build します。 |

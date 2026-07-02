@@ -1,7 +1,7 @@
 use crate::protocol::{Request, Response};
 use ai_handoff_core::paths::{dead_letter_dir, requests_dir, responses_dir};
 use std::path::Path;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 pub trait Handler {
     fn handle(&self, req: &Request) -> Response;
@@ -65,6 +65,28 @@ pub fn serve_forever(handler: &dyn Handler, poll: Duration) -> ! {
             current = (current * 2).min(max_poll);
         }
         std::thread::sleep(current);
+    }
+}
+
+pub fn serve_until_idle(handler: &dyn Handler, poll: Duration, idle_timeout: Duration) -> usize {
+    ensure_ipc_dirs();
+    let max_poll = MAX_IDLE_POLL.max(poll);
+    let mut current = poll;
+    let mut idle_since = Instant::now();
+    let mut processed_total = 0;
+
+    loop {
+        let processed = serve_once(handler);
+        if processed > 0 {
+            processed_total += processed;
+            current = poll;
+            idle_since = Instant::now();
+        } else if idle_since.elapsed() >= idle_timeout {
+            return processed_total;
+        } else {
+            current = (current * 2).min(max_poll);
+        }
+        std::thread::sleep(current.min(idle_timeout.saturating_sub(idle_since.elapsed())));
     }
 }
 
@@ -181,6 +203,25 @@ mod tests {
         assert_eq!(serve_once(&EchoHandler), 0);
         assert!(!req_path.exists());
         assert!(dead_letter_dir().join("bad.json").exists());
+        std::env::remove_var("AI_HANDOFF_HOME");
+    }
+
+    #[test]
+    fn serve_until_idle_returns_after_timeout_without_requests() {
+        let _guard = env_lock();
+        let home = tempfile::tempdir().unwrap();
+        std::env::set_var("AI_HANDOFF_HOME", home.path());
+
+        let started = std::time::Instant::now();
+        let processed = serve_until_idle(
+            &EchoHandler,
+            Duration::from_millis(1),
+            Duration::from_millis(20),
+        );
+
+        assert_eq!(processed, 0);
+        assert!(started.elapsed() >= Duration::from_millis(20));
+        assert!(started.elapsed() < Duration::from_secs(1));
         std::env::remove_var("AI_HANDOFF_HOME");
     }
 }

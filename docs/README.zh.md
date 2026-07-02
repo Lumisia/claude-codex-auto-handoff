@@ -50,6 +50,8 @@ ai-handoff install --yes
 
 ### Windows (PowerShell)
 
+默认的 `latest` 会选择最高的 stable `vX.Y.Z` GitHub Release，而不是 GitHub 的 "Latest" 标记。
+
 在 PowerShell 中运行。它会下载 CLI，加入用户 PATH，并运行安装程序。
 
 ```powershell
@@ -62,7 +64,15 @@ Set-ExecutionPolicy Bypass -Scope Process -Force; irm https://raw.githubusercont
 & ([scriptblock]::Create((irm https://raw.githubusercontent.com/Lumisia/aho__ai-handoff/master/scripts/install.ps1))) -Yes -Only codex
 ```
 
+需要可重复安装时固定 release:
+
+```powershell
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/Lumisia/aho__ai-handoff/master/scripts/install.ps1))) -Yes -Version v2.0.6
+```
+
 ### Shell Installer
+
+默认的 `latest` 会选择最高的 stable `vX.Y.Z` GitHub Release，而不是 GitHub 的 "Latest" 标记。
 
 适用于 macOS、Linux、WSL 或 Git Bash。
 

@@ -1,13 +1,13 @@
 use crate::AgentArg;
 use ai_handoff_ipc::{
     client::{send, ClientConfig},
-    protocol::{ClientInfo, Request, Response, VERSION},
+    protocol::{ClientInfo, Request, Response, Status, VERSION},
 };
 use chrono::{SecondsFormat, Utc};
 use serde_json::Value;
 use std::io::{Read, Write};
 use std::process::Stdio;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
@@ -109,6 +109,38 @@ pub(crate) fn daemon_unavailable(resp: &Response) -> bool {
         .any(|warning| warning == "daemon_unavailable")
 }
 
+pub(crate) fn ping_daemon(timeout: Duration) -> bool {
+    let cwd = std::env::current_dir()
+        .map(|path| path.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let req = Request {
+        version: VERSION,
+        request_id: uuid::Uuid::new_v4().to_string(),
+        kind: "ping".to_string(),
+        agent: "cli".to_string(),
+        event: "ping".to_string(),
+        received_at: Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true),
+        cwd,
+        session_id: None,
+        turn_id: None,
+        raw_hook_input: serde_json::json!({}),
+        client: ClientInfo {
+            binary_version: env!("CARGO_PKG_VERSION").to_string(),
+            pid: std::process::id(),
+            platform: std::env::consts::OS.to_string(),
+        },
+    };
+    let resp = send(
+        &req,
+        &ClientConfig {
+            request_timeout: timeout,
+            poll_interval: Duration::from_millis(10),
+            ..ClientConfig::default()
+        },
+    );
+    resp.status == Status::Ok
+}
+
 pub(crate) fn try_start_daemon() -> std::io::Result<()> {
     if std::env::var("AI_HANDOFF_NO_DAEMON_AUTOSTART")
         .map(|value| value == "1" || value.eq_ignore_ascii_case("true"))
@@ -135,5 +167,15 @@ pub(crate) fn try_start_daemon() -> std::io::Result<()> {
     }
 
     let _child = command.spawn()?;
-    Ok(())
+    let deadline = Instant::now() + Duration::from_millis(2500);
+    while Instant::now() < deadline {
+        if ping_daemon(Duration::from_millis(100)) {
+            return Ok(());
+        }
+        std::thread::sleep(Duration::from_millis(25));
+    }
+    Err(std::io::Error::new(
+        std::io::ErrorKind::TimedOut,
+        "daemon did not become reachable",
+    ))
 }

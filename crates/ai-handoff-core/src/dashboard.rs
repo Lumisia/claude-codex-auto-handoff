@@ -136,7 +136,6 @@ pub fn dashboard_snapshot_for(home: &Path, user_home: &Path) -> DashboardSnapsho
     let claude_settings = check_claude_settings(
         Path::new(&p.claude_settings),
         claude_settings_text.as_deref(),
-        &install_record.claude.plugin,
     );
     let ipc = check_dir("ipc", "IPC", Path::new(&p.ipc));
     let store = check_dir("store", "Store", Path::new(&p.store));
@@ -477,15 +476,12 @@ fn check_codex_hooks(
     }
 }
 
-fn check_claude_settings(
-    path: &Path,
-    existing: Option<&str>,
-    plugin: &Option<state::PluginRecord>,
-) -> CheckRow {
-    if let Some(row) = check_plugin_hooks("claude-settings", "Claude settings", plugin) {
-        return row;
-    }
-
+fn check_claude_settings(path: &Path, existing: Option<&str>) -> CheckRow {
+    // Claude Code loads hooks from ~/.claude/settings.json, not from the plugin
+    // bundle: the Claude plugin ships skills only and intentionally never writes
+    // a hooks/hooks.json (see install::plugin). Validate settings.json directly.
+    // Delegating to check_plugin_hooks here reported a false "missing" because
+    // the Claude plugin root has no hooks.json to find.
     let Some(text) = existing else {
         return missing_row("claude-settings", "Claude settings", path);
     };
@@ -802,8 +798,9 @@ mod tests {
     "Stop": [{"hooks": [{"_aiHandoff": true}]}]
   }
 }"#;
+        // Codex ships hooks inside the plugin bundle; Claude does not — its hooks
+        // live in ~/.claude/settings.json and the plugin root has no hooks.json.
         write(&codex_plugin.join("hooks/hooks.json"), hooks);
-        write(&claude_plugin.join("hooks/hooks.json"), hooks);
         write(
             &temp.path().join(".codex/config.toml"),
             r#"[plugins."ai-handoff@claude-codex-auto-handoff"]
@@ -822,10 +819,7 @@ trusted_hash = "sha256:trusted-v2"
 trusted_hash = "sha256:trusted-v2"
 "#,
         );
-        write(
-            &temp.path().join(".claude/settings.json"),
-            r#"{"model":"opus"}"#,
-        );
+        write(&temp.path().join(".claude/settings.json"), hooks);
         state::save(
             &ai_home,
             &state::InstallState {
@@ -845,7 +839,7 @@ trusted_hash = "sha256:trusted-v2"
                 claude: state::ClaudeState {
                     plugin: Some(state::PluginRecord {
                         root: claude_plugin.to_string_lossy().into_owned(),
-                        files: vec!["hooks/hooks.json".into()],
+                        files: vec![".claude-plugin/plugin.json".into()],
                         marketplace_file: None,
                     }),
                     ..Default::default()

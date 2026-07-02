@@ -31,12 +31,17 @@ ai-handoff doctor
 ai-handoff config list
 ai-handoff config get triggers.five_hour.mode
 ai-handoff config set triggers.five_hour.threshold_percent 80
+ai-handoff config get daemon.idle_timeout_seconds
+ai-handoff config set daemon.idle_timeout_seconds 60
 ai-handoff usage
 ai-handoff account status
 ai-handoff daemon run
+ai-handoff daemon run --stay-alive
 ai-handoff autostart status
 ai-handoff uninstall --keep-store
 ```
+
+`ai-handoff daemon run`은 요청이 없으면 설정된 idle timeout 뒤에 종료됩니다. 기본값은 60초입니다. 디버깅이나 수동 점검처럼 계속 켜둘 때만 `ai-handoff daemon run --stay-alive`를 사용합니다.
 
 ## 파일 구성
 
@@ -102,6 +107,6 @@ cargo build --release -p ai-handoff-cli
 |---|---|
 | Codex가 hook 오류를 보여줌 | `/hooks`를 열고 AI Handoff hook을 trust한 뒤 `ai-handoff doctor`를 실행합니다. |
 | hook이 code 1로 종료됨 | 오래된 v1 Node hook 또는 이전 plugin cache를 확인합니다. `ai-handoff install --yes`로 다시 설치합니다. |
-| daemon이 offline | 한 터미널에서 `ai-handoff daemon run`을 실행하고, 다른 터미널에서 `ai-handoff doctor`를 실행합니다. |
+| daemon이 offline | hook이 보통 자동으로 시작합니다. 수동 점검 시에는 한 터미널에서 `ai-handoff daemon run --stay-alive`를 실행하고, 다른 터미널에서 `ai-handoff doctor`를 실행합니다. |
 | usage가 비어 있음 | AI Handoff는 로컬 로그만 추정합니다. Claude Code나 Codex를 먼저 사용한 뒤 `ai-handoff usage`를 실행합니다. |
 | Windows build가 exe를 교체하지 못함 | 실행 중인 `ai-handoff.exe` 프로세스를 끄고 다시 build합니다. |

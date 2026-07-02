@@ -348,7 +348,7 @@ mod tests {
     #[test]
     fn settings_rows_cover_all_keys_with_kinds() {
         let rows = settings_rows(&Config::default());
-        assert_eq!(rows.len(), 20);
+        assert_eq!(rows.len(), 21);
         let threshold = rows
             .iter()
             .find(|r| r.key == "triggers.five_hour.threshold_percent")
@@ -361,6 +361,12 @@ mod tests {
             .unwrap();
         assert_eq!(mode.value, "ask");
         assert_eq!(mode.kind, KeyKind::Mode);
+        let daemon_idle = rows
+            .iter()
+            .find(|r| r.key == "daemon.idle_timeout_seconds")
+            .unwrap();
+        assert_eq!(daemon_idle.value, "60");
+        assert_eq!(daemon_idle.kind, KeyKind::Seconds);
         let format = rows.iter().find(|r| r.key == "capsule.format").unwrap();
         assert_eq!(format.value, "json");
         assert_eq!(format.kind, KeyKind::CapsuleFormat);

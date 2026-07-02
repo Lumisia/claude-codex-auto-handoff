@@ -549,6 +549,7 @@ fn key_kind_name(kind: config::KeyKind) -> &'static str {
         config::KeyKind::Percent => "percent",
         config::KeyKind::PosFloat => "positive_float",
         config::KeyKind::Count => "count",
+        config::KeyKind::Seconds => "seconds",
         config::KeyKind::Mode => "mode",
         config::KeyKind::Lang => "language",
         config::KeyKind::CapsuleFormat => "capsule_format",
@@ -569,7 +570,7 @@ fn category_for_key(key: &str) -> &'static str {
         "language"
     } else if key.starts_with("gui_theme.") || key.starts_with("theme.") {
         "theme"
-    } else if key.starts_with("autostart.") {
+    } else if key.starts_with("autostart.") || key.starts_with("daemon.") {
         "automation"
     } else if key.starts_with("statusline.") {
         "agents"
@@ -592,6 +593,9 @@ fn description_for_key(key: &str) -> &'static str {
             "Warn when estimated runway falls under this many minutes."
         }
         "autostart.enabled" => "Start the daemon automatically when the user logs in.",
+        "daemon.idle_timeout_seconds" => {
+            "Exit the daemon after this many idle seconds without requests."
+        }
         "statusline.show" => "Show ai-handoff status in Claude Code statusline.",
         "language" => "Preferred UI language for shared ai-handoff surfaces.",
         "capsule.format" => "Choose JSON or Markdown for newly written capsules.",
@@ -1470,8 +1474,8 @@ fn probe_daemon() -> String {
     let resp = send(
         &req,
         &ClientConfig {
-            request_timeout: Duration::from_millis(120),
-            poll_interval: Duration::from_millis(5),
+            request_timeout: Duration::from_millis(750),
+            poll_interval: Duration::from_millis(10),
             ..Default::default()
         },
     );
@@ -1755,6 +1759,13 @@ mod tests {
         std::fs::write(&path, "# keep\n[autostart]\nenabled = true\n").unwrap();
 
         let rows = config_rows_for(&path).unwrap();
+        assert!(rows
+            .iter()
+            .any(|row| row.key == "daemon.idle_timeout_seconds"
+                && row.value == "60"
+                && row.default_value == "60"
+                && row.kind == "seconds"
+                && row.category == "automation"));
         assert!(rows.iter().any(|row| row.key == "capsule.format"));
         assert!(rows.iter().any(|row| row.key == "capsule.language"
             && row.value == "en"

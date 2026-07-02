@@ -19,6 +19,8 @@ pub enum Commands {
     Daemon {
         #[arg(value_enum)]
         action: DaemonAction,
+        #[arg(long)]
+        stay_alive: bool,
     },
     Doctor {
         #[arg(long)]
@@ -178,7 +180,7 @@ pub fn run_cli(cli: Cli) -> anyhow::Result<i32> {
     match cli.command {
         None | Some(Commands::Tui) => commands::tui::run(),
         Some(Commands::Hook { event, agent }) => commands::hook::run(&event, agent),
-        Some(Commands::Daemon { action }) => commands::daemon::run(action),
+        Some(Commands::Daemon { action, stay_alive }) => commands::daemon::run(action, stay_alive),
         Some(Commands::Doctor { json }) => commands::doctor::run(json),
         Some(Commands::Checkpoint {
             message,
@@ -233,6 +235,19 @@ mod tests {
             Some(Commands::Hook { event, agent }) => {
                 assert_eq!(event, "session-start");
                 assert_eq!(agent, AgentArg::Codex);
+            }
+            other => panic!("unexpected command: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_daemon_run_stay_alive_flag() {
+        let cli = Cli::try_parse_from(["ai-handoff", "daemon", "run", "--stay-alive"]).unwrap();
+
+        match cli.command {
+            Some(Commands::Daemon { action, stay_alive }) => {
+                assert_eq!(action, DaemonAction::Run);
+                assert!(stay_alive);
             }
             other => panic!("unexpected command: {other:?}"),
         }

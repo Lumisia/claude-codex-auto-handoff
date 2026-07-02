@@ -95,6 +95,7 @@ fn setting_desc(key: &str) -> String {
         "triggers.five_hour.burn_rate.enabled" => "setting.burn_enabled",
         "triggers.five_hour.burn_rate.runway_minutes" => "setting.runway",
         "autostart.enabled" => "setting.autostart",
+        "daemon.idle_timeout_seconds" => "setting.daemon_idle_timeout",
         "statusline.show" => "setting.statusline",
         "language" => "setting.language",
         "capsule.format" => "setting.capsule_format",
@@ -122,6 +123,7 @@ fn setting_label(key: &str) -> String {
         "triggers.five_hour.burn_rate.enabled" => "setting_label.burn_enabled",
         "triggers.five_hour.burn_rate.runway_minutes" => "setting_label.runway",
         "autostart.enabled" => "setting_label.autostart",
+        "daemon.idle_timeout_seconds" => "setting_label.daemon_idle_timeout",
         "statusline.show" => "setting_label.statusline",
         "language" => "setting_label.language",
         "capsule.format" => "setting_label.capsule_format",
@@ -4095,7 +4097,7 @@ fn setting_category_index(key: &str) -> usize {
         7
     } else if key.starts_with("agents.") {
         8
-    } else if key.starts_with("autostart.") {
+    } else if key.starts_with("autostart.") || key.starts_with("daemon.") {
         1
     } else {
         9

@@ -50,6 +50,8 @@ ai-handoff install --yes
 
 ### Windows (PowerShell)
 
+デフォルトの `latest` は GitHub の "Latest" バッジではなく、最も大きい stable `vX.Y.Z` GitHub Release を選びます。
+
 PowerShell で実行します。CLI をダウンロードしてユーザー PATH に追加し、インストーラーを実行します。
 
 ```powershell
@@ -62,7 +64,15 @@ Set-ExecutionPolicy Bypass -Scope Process -Force; irm https://raw.githubusercont
 & ([scriptblock]::Create((irm https://raw.githubusercontent.com/Lumisia/aho__ai-handoff/master/scripts/install.ps1))) -Yes -Only codex
 ```
 
+再現可能なインストールが必要な場合はリリースを固定します:
+
+```powershell
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/Lumisia/aho__ai-handoff/master/scripts/install.ps1))) -Yes -Version v2.0.6
+```
+
 ### Shell Installer
+
+デフォルトの `latest` は GitHub の "Latest" バッジではなく、最も大きい stable `vX.Y.Z` GitHub Release を選びます。
 
 macOS、Linux、WSL、Git Bash で使います。
 

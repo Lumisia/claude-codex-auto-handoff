@@ -1,10 +1,15 @@
 use crate::DaemonAction;
 
-pub fn run(action: DaemonAction) -> anyhow::Result<i32> {
+pub fn run(action: DaemonAction, stay_alive: bool) -> anyhow::Result<i32> {
     match action {
-        DaemonAction::Run => ai_handoff_daemon::run(),
+        DaemonAction::Run => Ok(ai_handoff_daemon::run(stay_alive)),
         DaemonAction::Status => {
-            println!("daemon status: unknown");
+            let status = if super::hook::ping_daemon(std::time::Duration::from_millis(750)) {
+                "reachable"
+            } else {
+                "unreachable"
+            };
+            println!("daemon status: {status}");
             Ok(0)
         }
     }

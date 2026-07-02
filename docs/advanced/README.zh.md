@@ -31,12 +31,17 @@ ai-handoff doctor
 ai-handoff config list
 ai-handoff config get triggers.five_hour.mode
 ai-handoff config set triggers.five_hour.threshold_percent 80
+ai-handoff config get daemon.idle_timeout_seconds
+ai-handoff config set daemon.idle_timeout_seconds 60
 ai-handoff usage
 ai-handoff account status
 ai-handoff daemon run
+ai-handoff daemon run --stay-alive
 ai-handoff autostart status
 ai-handoff uninstall --keep-store
 ```
+
+`ai-handoff daemon run` 在没有请求时会在配置的 idle timeout 后退出。默认值是 60 秒。只有调试或手动检查时需要常驻，才使用 `ai-handoff daemon run --stay-alive`。
 
 ## 文件结构
 
@@ -102,6 +107,6 @@ cargo build --release -p ai-handoff-cli
 |---|---|
 | Codex 显示 hook errors | 打开 `/hooks`，trust AI Handoff hooks，然后运行 `ai-handoff doctor`。 |
 | hooks 以 code 1 退出 | 检查旧的 v1 Node hooks 或旧 plugin cache。用 `ai-handoff install --yes` 重新安装。 |
-| daemon offline | 在一个终端运行 `ai-handoff daemon run`，再在另一个终端运行 `ai-handoff doctor`。 |
+| daemon offline | hook 通常会自动启动它。手动检查时，在一个终端运行 `ai-handoff daemon run --stay-alive`，再在另一个终端运行 `ai-handoff doctor`。 |
 | usage 为空 | AI Handoff 只从本地 logs 估算。先使用 Claude Code 或 Codex，再运行 `ai-handoff usage`。 |
 | Windows build 无法替换 exe | 停止正在运行的 `ai-handoff.exe` process，然后重新 build。 |

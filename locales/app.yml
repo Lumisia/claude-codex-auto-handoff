@@ -749,6 +749,11 @@ setting.autostart:
   ko: "로그온 시 데몬 자동 실행"
   ja: "ログオン時にデーモンを自動起動"
   zh: "登录时自动运行守护进程"
+setting.daemon_idle_timeout:
+  en: "Exit the daemon after this many idle seconds"
+  ko: "요청 없이 이 초만큼 유휴 상태가 이어지면 데몬 종료"
+  ja: "要求なしでこの秒数アイドル状態が続いたらデーモンを終了"
+  zh: "没有请求并空闲达到此秒数后退出守护进程"
 setting.statusline:
   en: "Show the AI Handoff status line inside the agent"
   ko: "에이전트 안에 AI Handoff 상태줄 표시"
@@ -1538,6 +1543,11 @@ setting_label.autostart:
   ko: "데몬 자동 시작"
   ja: "デーモン自動起動"
   zh: "守护进程自动启动"
+setting_label.daemon_idle_timeout:
+  en: "Daemon idle timeout"
+  ko: "데몬 유휴 종료 시간"
+  ja: "デーモンアイドル終了時間"
+  zh: "守护进程空闲退出时间"
 setting_label.statusline:
   en: "Agent status line"
   ko: "에이전트 상태줄"

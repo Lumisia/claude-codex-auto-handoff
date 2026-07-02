@@ -31,12 +31,17 @@ ai-handoff doctor
 ai-handoff config list
 ai-handoff config get triggers.five_hour.mode
 ai-handoff config set triggers.five_hour.threshold_percent 80
+ai-handoff config get daemon.idle_timeout_seconds
+ai-handoff config set daemon.idle_timeout_seconds 60
 ai-handoff usage
 ai-handoff account status
 ai-handoff daemon run
+ai-handoff daemon run --stay-alive
 ai-handoff autostart status
 ai-handoff uninstall --keep-store
 ```
+
+`ai-handoff daemon run` exits after the configured idle timeout when there are no requests. The default is 60 seconds. Use `ai-handoff daemon run --stay-alive` only when you want a long-running foreground daemon for debugging or manual checks.
 
 ## File Layout
 
@@ -102,6 +107,6 @@ cargo build --release -p ai-handoff-cli
 |---|---|
 | Codex shows hook errors | Open `/hooks`, trust AI Handoff hooks, then run `ai-handoff doctor`. |
 | Hooks exit with code 1 | Check for stale v1 Node hooks or an old plugin cache. Reinstall with `ai-handoff install --yes`. |
-| Daemon is offline | Run `ai-handoff daemon run` in a terminal and then run `ai-handoff doctor` in another terminal. |
+| Daemon is offline | Hooks normally auto-start it. For manual checks, run `ai-handoff daemon run --stay-alive` in one terminal and `ai-handoff doctor` in another. |
 | Usage is empty | AI Handoff only estimates from local logs. Use Claude Code or Codex first, then run `ai-handoff usage`. |
 | Windows build cannot replace the exe | Stop the running `ai-handoff.exe` process and build again. |

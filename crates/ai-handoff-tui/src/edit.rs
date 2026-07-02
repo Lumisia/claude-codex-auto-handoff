@@ -20,6 +20,7 @@ pub enum EditAction {
 const PERCENT_STEP: f64 = 5.0;
 const MINUTES_STEP: f64 = 5.0;
 const COUNT_STEP: i64 = 1;
+const SECONDS_STEP: i64 = 5;
 const MODES: [&str; 3] = ["off", "ask", "auto"];
 const LANGS: [&str; 4] = ["en", "ko", "ja", "zh"];
 const CAPSULE_FORMATS: [&str; 2] = ["json", "md"];
@@ -87,6 +88,15 @@ pub fn next_raw(kind: KeyKind, current: &str, action: EditAction) -> Option<Stri
                 COUNT_STEP
             };
             Some((now + delta).clamp(1, 50).to_string())
+        }
+        KeyKind::Seconds => {
+            let now: i64 = current.parse().ok()?;
+            let delta = if action == EditAction::Prev {
+                -SECONDS_STEP
+            } else {
+                SECONDS_STEP
+            };
+            Some((now + delta).clamp(1, 3600).to_string())
         }
     }
 }
@@ -275,6 +285,22 @@ mod tests {
         assert_eq!(
             next_raw(KeyKind::Count, "1", EditAction::Prev).unwrap(),
             "1"
+        );
+    }
+
+    #[test]
+    fn seconds_step_and_clamp_to_daemon_range() {
+        assert_eq!(
+            next_raw(KeyKind::Seconds, "60", EditAction::Next).unwrap(),
+            "65"
+        );
+        assert_eq!(
+            next_raw(KeyKind::Seconds, "1", EditAction::Prev).unwrap(),
+            "1"
+        );
+        assert_eq!(
+            next_raw(KeyKind::Seconds, "3600", EditAction::Next).unwrap(),
+            "3600"
         );
     }
 

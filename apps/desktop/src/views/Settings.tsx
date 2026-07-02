@@ -23,6 +23,7 @@ const settingLabelKeys: Record<string, string> = {
   "triggers.five_hour.burn_rate.enabled": "settingLabelBurnRateEnabled",
   "triggers.five_hour.burn_rate.runway_minutes": "settingLabelBurnRateRunway",
   "autostart.enabled": "settingLabelAutostart",
+  "daemon.idle_timeout_seconds": "settingLabelDaemonIdleTimeout",
   "statusline.show": "settingLabelStatusline",
   language: "settingLabelLanguage",
   "capsule.format": "settingLabelCapsuleFormat",
@@ -56,6 +57,7 @@ const settingHelpKeys: Record<string, string> = {
   "triggers.five_hour.burn_rate.enabled": "settingHelpBurnRateEnabled",
   "triggers.five_hour.burn_rate.runway_minutes": "settingHelpBurnRateRunway",
   "autostart.enabled": "settingHelpAutostart",
+  "daemon.idle_timeout_seconds": "settingHelpDaemonIdleTimeout",
   "statusline.show": "settingHelpStatusline",
   language: "settingHelpLanguage",
   "capsule.format": "settingHelpCapsuleFormat",
@@ -167,7 +169,11 @@ function SettingValueEditor({
   const buttonRef = useRef<HTMLButtonElement | null>(null);
   const options = optionsFor(row);
   const isColor = row.kind === "color";
-  const isNumber = row.kind === "percent" || row.kind === "positive_float" || row.kind === "count";
+  const isNumber =
+    row.kind === "percent" || row.kind === "positive_float" || row.kind === "count" || row.kind === "seconds";
+  const numberMax =
+    row.kind === "percent" ? 100 : row.kind === "count" ? 50 : row.kind === "seconds" ? 3600 : undefined;
+  const numberStep = row.kind === "seconds" ? 5 : 1;
 
   useEffect(() => {
     setDraft(row.value);
@@ -212,8 +218,8 @@ function SettingValueEditor({
               <input
                 type="number"
                 min={row.kind === "percent" ? 0 : 1}
-                max={row.kind === "percent" ? 100 : row.kind === "count" ? 50 : undefined}
-                step={row.kind === "count" ? 1 : 1}
+                max={numberMax}
+                step={numberStep}
                 value={draft}
                 onChange={(event) => setDraft(event.target.value)}
                 onKeyDown={(event) => {

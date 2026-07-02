@@ -18,7 +18,7 @@ pub fn ensure_runtime_dirs() -> std::io::Result<()> {
     Ok(())
 }
 
-pub fn run() -> ! {
+pub fn run(stay_alive: bool) -> i32 {
     let _ = ensure_runtime_dirs();
     // Single instance per AI_HANDOFF_HOME: hook clients auto-spawn a daemon
     // whenever one looks unavailable, so concurrent spawns are normal. Extras
@@ -27,7 +27,16 @@ pub fn run() -> ! {
         std::process::exit(0);
     };
     let router = router::Router::new();
-    ai_handoff_ipc::server::serve_forever(&router, Duration::from_millis(25))
+    if stay_alive {
+        ai_handoff_ipc::server::serve_forever(&router, Duration::from_millis(25));
+    }
+    let cfg = ai_handoff_core::config::load();
+    ai_handoff_ipc::server::serve_until_idle(
+        &router,
+        Duration::from_millis(25),
+        Duration::from_secs(cfg.daemon.idle_timeout_seconds()),
+    );
+    0
 }
 
 /// Take an exclusive advisory lock on `<home>/ipc/daemon.lock`. The lock is

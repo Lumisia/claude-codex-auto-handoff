@@ -44,7 +44,7 @@ fn run_from_raw(
     let req = build_request(event, agent, raw_text);
     let mut resp = send(&req, &ClientConfig::default());
 
-    if autostart_daemon && daemon_unavailable(&resp) && try_start_daemon().is_ok() {
+    if autostart_daemon && daemon_unavailable(&resp) && start_daemon_logged() {
         resp = send(
             &req,
             &ClientConfig {
@@ -139,6 +139,18 @@ pub(crate) fn ping_daemon(timeout: Duration) -> bool {
         },
     );
     resp.status == Status::Ok
+}
+
+/// Autostart the daemon and say WHY when it fails. The silent version left
+/// users staring at "process is running but hooks do nothing" with no clue.
+pub(crate) fn start_daemon_logged() -> bool {
+    match try_start_daemon() {
+        Ok(()) => true,
+        Err(error) => {
+            eprintln!("[ai-handoff] daemon autostart failed: {error}");
+            false
+        }
+    }
 }
 
 pub(crate) fn try_start_daemon() -> std::io::Result<()> {

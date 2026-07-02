@@ -104,3 +104,60 @@ fn windows_private_acl_is_checked_after_best_effort_hardening() {
         "{file_report:?}"
     );
 }
+
+#[test]
+fn inherited_subdir_creates_and_writes_shared_files_atomically() {
+    let dir = tempfile::tempdir().unwrap();
+    let ipc_root = dir.path().join("ipc");
+    ai_handoff_core::secure_fs::ensure_private_dir(&ipc_root).unwrap();
+    let requests = ipc_root.join("requests");
+    ai_handoff_core::secure_fs::ensure_inherited_subdir(&requests).unwrap();
+    assert!(requests.is_dir());
+
+    let file = requests.join("req.json");
+    ai_handoff_core::secure_fs::write_shared_atomic(
+        &file,
+        &file.with_extension("json.tmp"),
+        b"{\"ok\":true}",
+    )
+    .unwrap();
+    assert_eq!(std::fs::read(&file).unwrap(), b"{\"ok\":true}");
+    assert!(!file.with_extension("json.tmp").exists());
+}
+
+#[cfg(windows)]
+#[test]
+fn windows_inherited_subdir_repairs_a_previously_hardened_dir() {
+    // Simulate the old bug: the requests dir was hardened with
+    // /inheritance:r, which stripped the sandbox ACE inherited from the IPC
+    // root. ensure_inherited_subdir must flip it back to inheriting.
+    let dir = tempfile::tempdir().unwrap();
+    let ipc_root = dir.path().join("ipc");
+    let requests = ipc_root.join("requests");
+    // Old behavior: private-hardened subdir (breaks inheritance).
+    ai_handoff_core::secure_fs::ensure_private_dir(&requests).unwrap();
+    let broken = ai_handoff_core::secure_fs::inherited_subdir_status(&requests);
+    assert_eq!(
+        broken.status,
+        ai_handoff_core::secure_fs::PermissionStatus::Warning,
+        "{broken:?}"
+    );
+
+    ai_handoff_core::secure_fs::ensure_inherited_subdir(&requests).unwrap();
+    let repaired = ai_handoff_core::secure_fs::inherited_subdir_status(&requests);
+    assert_eq!(
+        repaired.status,
+        ai_handoff_core::secure_fs::PermissionStatus::Ok,
+        "{repaired:?}"
+    );
+}
+
+#[test]
+fn inherited_subdir_status_reports_missing_dir() {
+    let dir = tempfile::tempdir().unwrap();
+    let report = ai_handoff_core::secure_fs::inherited_subdir_status(&dir.path().join("nope"));
+    assert_eq!(
+        report.status,
+        ai_handoff_core::secure_fs::PermissionStatus::Missing
+    );
+}

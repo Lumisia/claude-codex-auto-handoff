@@ -68,15 +68,15 @@ fn cleanup_response(request_id: &str) {
 
 fn write_request(req: &Request) -> std::io::Result<()> {
     let dir = requests_dir();
-    // No explicit ensure calls here: `write_private_atomic` creates + hardens
-    // the parent dir itself, and the daemon hardens the full IPC tree at
-    // startup. Hooks fire on every tool call, and each Windows hardening
-    // spawns icacls.exe — four redundant spawns per hook add real latency.
-
+    // Shared (inheriting) write, and no per-call dir hardening. The old
+    // `write_private_atomic` re-hardened the requests dir on EVERY call,
+    // which both spawned icacls.exe per hook (latency) and re-broke the
+    // inherited sandbox ACE that Codex needs — an unsandboxed Claude hook
+    // would silently lock the sandboxed Codex hooks out again.
     let path = dir.join(format!("{}.json", req.request_id));
     let tmp = dir.join(format!("{}.json.tmp", req.request_id));
     let bytes = serde_json::to_vec(req)?;
-    ai_handoff_core::secure_fs::write_private_atomic(&path, &tmp, &bytes)?;
+    ai_handoff_core::secure_fs::write_shared_atomic(&path, &tmp, &bytes)?;
     Ok(())
 }
 

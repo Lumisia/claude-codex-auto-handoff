@@ -45,7 +45,7 @@ pub fn run_io(agent: &str, out: &mut dyn Write, autostart_daemon: bool) -> i32 {
     let mut resp = send(&req, &ClientConfig::default());
     if autostart_daemon
         && super::hook::daemon_unavailable(&resp)
-        && super::hook::try_start_daemon().is_ok()
+        && super::hook::start_daemon_logged()
     {
         resp = send(
             &req,

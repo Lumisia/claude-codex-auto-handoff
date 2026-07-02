@@ -41,6 +41,13 @@ pub fn run(
     // Autostart-on-logon is opt-in via `[autostart] enabled` in config.toml;
     // it defaults to disabled, so a fresh install registers no logon task.
     let autostart_enabled = ai_handoff_core::config::load().autostart.enabled;
+    // Repair the runtime tree while running unsandboxed: older versions
+    // hardened the IPC requests/responses subdirs, which locked sandboxed
+    // agent hooks out of IPC (hooks degraded to daemon_unavailable even with
+    // a live daemon). Idempotent, so it is safe on every install.
+    if !dry_run {
+        let _ = ai_handoff_daemon::ensure_runtime_dirs();
+    }
     let stdin = std::io::stdin();
     let stdout = std::io::stdout();
     run_with_targets(

@@ -34,6 +34,61 @@ fn doctor_json_reports_daemon_unreachable_and_exits_zero() {
 }
 
 #[test]
+fn doctor_reports_ipc_subdir_health_missing_then_ok() {
+    let _guard = lock();
+    let home = tempfile::tempdir().unwrap();
+    std::env::set_var("AI_HANDOFF_HOME", home.path());
+
+    // Fresh home: doctor's own ping creates the requests dir on write (the
+    // client does that so hooks work before the daemon's first run), but the
+    // responses dir only appears once a daemon answers — so it reads missing.
+    let mut out = Vec::new();
+    doctor::run_io(true, &mut out);
+    let report: serde_json::Value = serde_json::from_slice(&out).unwrap();
+    assert_eq!(report["ipc_requests"]["status"], "ok", "{report}");
+    assert_eq!(report["ipc_responses"]["status"], "missing", "{report}");
+
+    // After the runtime dirs exist (what daemon startup does), both must be
+    // writable and inheriting.
+    ai_handoff_daemon::ensure_runtime_dirs().unwrap();
+    ai_handoff_core::secure_fs::ensure_inherited_subdir(&ai_handoff_core::paths::requests_dir())
+        .unwrap();
+    ai_handoff_core::secure_fs::ensure_inherited_subdir(&ai_handoff_core::paths::responses_dir())
+        .unwrap();
+    let mut out = Vec::new();
+    doctor::run_io(true, &mut out);
+    let report: serde_json::Value = serde_json::from_slice(&out).unwrap();
+    assert_eq!(report["ipc_requests"]["status"], "ok", "{report}");
+    assert_eq!(report["ipc_responses"]["status"], "ok", "{report}");
+
+    std::env::remove_var("AI_HANDOFF_HOME");
+}
+
+#[cfg(windows)]
+#[test]
+fn doctor_flags_hardened_ipc_subdirs_as_broken() {
+    let _guard = lock();
+    let home = tempfile::tempdir().unwrap();
+    std::env::set_var("AI_HANDOFF_HOME", home.path());
+
+    // Reproduce the old bug: subdirs hardened with /inheritance:r. The IPC
+    // root check alone said "private" and missed this; the subdir check must
+    // flag it.
+    ai_handoff_core::secure_fs::ensure_private_dir(&ai_handoff_core::paths::requests_dir())
+        .unwrap();
+    ai_handoff_core::secure_fs::ensure_private_dir(&ai_handoff_core::paths::responses_dir())
+        .unwrap();
+
+    let mut out = Vec::new();
+    doctor::run_io(true, &mut out);
+    let report: serde_json::Value = serde_json::from_slice(&out).unwrap();
+    assert_eq!(report["ipc_requests"]["status"], "warning", "{report}");
+    assert_eq!(report["ipc_responses"]["status"], "warning", "{report}");
+
+    std::env::remove_var("AI_HANDOFF_HOME");
+}
+
+#[test]
 fn doctor_json_reports_plugin_install_enable_and_trust_state() {
     let _guard = lock();
     let user_home = tempfile::tempdir().unwrap();

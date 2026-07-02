@@ -7,9 +7,14 @@ use std::time::Duration;
 pub fn ensure_runtime_dirs() -> std::io::Result<()> {
     ai_handoff_core::secure_fs::ensure_private_dir(&ai_handoff_core::paths::home())?;
     ai_handoff_core::secure_fs::ensure_private_dir(&ai_handoff_core::paths::ipc_dir())?;
-    ai_handoff_core::secure_fs::ensure_private_dir(&ai_handoff_core::paths::requests_dir())?;
-    ai_handoff_core::secure_fs::ensure_private_dir(&ai_handoff_core::paths::responses_dir())?;
-    ai_handoff_core::secure_fs::ensure_private_dir(&ai_handoff_core::paths::dead_letter_dir())?;
+    // The IPC subdirs must INHERIT the (private) IPC root ACL instead of
+    // being hardened: on Windows the Codex sandbox's ACE lives on the root,
+    // and `/inheritance:r` on the subdirs locked sandboxed hooks out of IPC
+    // (every hook degraded to daemon_unavailable). These calls also repair
+    // installs broken by older versions.
+    ai_handoff_core::secure_fs::ensure_inherited_subdir(&ai_handoff_core::paths::requests_dir())?;
+    ai_handoff_core::secure_fs::ensure_inherited_subdir(&ai_handoff_core::paths::responses_dir())?;
+    ai_handoff_core::secure_fs::ensure_inherited_subdir(&ai_handoff_core::paths::dead_letter_dir())?;
     ai_handoff_core::secure_fs::ensure_private_dir(&ai_handoff_core::paths::store_dir())?;
     ai_handoff_core::secure_fs::ensure_private_dir(&ai_handoff_core::paths::logs_dir())?;
     ai_handoff_core::secure_fs::touch_private_file(

@@ -52,6 +52,11 @@ pub fn run_io(json_output: bool, out: &mut dyn Write) -> i32 {
     let ipc_permissions = permission_report(ai_handoff_core::secure_fs::private_dir_status(
         &ai_handoff_core::paths::ipc_dir(),
     ));
+    // The root ACL alone missed the real failure mode: hardened
+    // requests/responses subdirs lock sandboxed agents out while the root
+    // still reads "private". Check inheritance AND actually try to write.
+    let ipc_requests = ipc_subdir_report(&ai_handoff_core::paths::requests_dir());
+    let ipc_responses = ipc_subdir_report(&ai_handoff_core::paths::responses_dir());
 
     // Per-agent plugin install state, read from the recorded install-state.
     let st = ai_handoff_core::install::state::load(&ai_handoff_core::paths::home());
@@ -63,6 +68,8 @@ pub fn run_io(json_output: bool, out: &mut dyn Write) -> i32 {
         "home": ai_handoff_core::paths::home().to_string_lossy(),
         "ipc": ai_handoff_core::paths::ipc_dir().to_string_lossy(),
         "ipc_permissions": ipc_permissions,
+        "ipc_requests": ipc_requests,
+        "ipc_responses": ipc_responses,
         "plugin": {
             "claude": claude_plugin,
             "codex": codex_plugin,
@@ -84,6 +91,22 @@ pub fn run_io(json_output: bool, out: &mut dyn Write) -> i32 {
                 .as_str()
                 .unwrap_or("unknown"),
             report["ipc_permissions"]["message"].as_str().unwrap_or("")
+        );
+        let _ = writeln!(
+            out,
+            "ipc requests: {} ({})",
+            report["ipc_requests"]["status"]
+                .as_str()
+                .unwrap_or("unknown"),
+            report["ipc_requests"]["message"].as_str().unwrap_or("")
+        );
+        let _ = writeln!(
+            out,
+            "ipc responses: {} ({})",
+            report["ipc_responses"]["status"]
+                .as_str()
+                .unwrap_or("unknown"),
+            report["ipc_responses"]["message"].as_str().unwrap_or("")
         );
         let _ = writeln!(
             out,
@@ -128,6 +151,34 @@ fn mark(ok: bool, yes: &'static str, no: &'static str) -> &'static str {
     } else {
         no
     }
+}
+
+/// Combined health of one IPC subdir: ACL-inheritance state plus an actual
+/// write probe. The probe is what catches the sandbox case — when doctor runs
+/// inside an agent sandbox (the handoff-doctor skill), a broken ACL makes the
+/// probe fail exactly like the hooks do.
+fn ipc_subdir_report(dir: &Path) -> serde_json::Value {
+    let mut report = ai_handoff_core::secure_fs::inherited_subdir_status(dir);
+    if !matches!(
+        report.status,
+        ai_handoff_core::secure_fs::PermissionStatus::Missing
+            | ai_handoff_core::secure_fs::PermissionStatus::Error
+    ) {
+        if let Err(error) = probe_write(dir) {
+            report = ai_handoff_core::secure_fs::PermissionReport {
+                status: ai_handoff_core::secure_fs::PermissionStatus::Error,
+                message: format!("write test failed: {error}"),
+            };
+        }
+    }
+    permission_report(report)
+}
+
+fn probe_write(dir: &Path) -> Result<(), String> {
+    let probe = dir.join(format!(".ai-handoff-doctor-{}.tmp", std::process::id()));
+    std::fs::write(&probe, b"probe").map_err(|error| error.to_string())?;
+    std::fs::remove_file(&probe).map_err(|error| error.to_string())?;
+    Ok(())
 }
 
 fn permission_report(report: ai_handoff_core::secure_fs::PermissionReport) -> serde_json::Value {

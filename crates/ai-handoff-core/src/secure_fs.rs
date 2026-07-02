@@ -19,6 +19,74 @@ pub fn ensure_private_dir(path: &Path) -> std::io::Result<()> {
     harden_dir(path)
 }
 
+/// Create a subdirectory that INHERITS its parent's ACL instead of being
+/// hardened with an explicit private ACL.
+///
+/// This is the correct shape for the IPC `requests`/`responses`/`dead_letter`
+/// dirs: the IPC root is hardened private, and agent sandboxes (Codex on
+/// Windows) grant their restricted token an ACE on that root because it is a
+/// configured writable root. Hardening the subdirs with `/inheritance:r` (the
+/// old behavior) stripped that inherited sandbox ACE, so sandboxed hooks could
+/// not write requests or read responses — the daemon looked dead even while
+/// running. On Windows this also REPAIRS dirs broken by older versions by
+/// re-enabling inheritance.
+pub fn ensure_inherited_subdir(path: &Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(path)?;
+    #[cfg(windows)]
+    {
+        let output = no_window_command("icacls")
+            .arg(path)
+            .arg("/inheritance:e")
+            .output()?;
+        if !output.status.success() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                String::from_utf8_lossy(&output.stderr).trim().to_string(),
+            ));
+        }
+    }
+    #[cfg(unix)]
+    {
+        // On unix the private parent (0700) already gates access by path;
+        // keep the subdir equally private. Mac/Linux sandboxes grant by path
+        // rules, not ACL inheritance, so this does not lock agents out.
+        harden_dir(path)?;
+    }
+    Ok(())
+}
+
+/// Atomically write a file that INHERITS the directory ACL (no per-file
+/// hardening). Used for IPC request/response payloads: a response hardened
+/// with an explicit private ACL cannot be READ back by a sandboxed hook
+/// (restricted tokens need their own ACE), which turned every hook call into
+/// `daemon_unavailable` even when the daemon answered.
+pub fn write_shared_atomic(path: &Path, tmp: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    if let Some(parent) = path.parent() {
+        if !parent.is_dir() {
+            ensure_inherited_subdir(parent)?;
+        }
+    }
+    write_file_with_private_mode(tmp, bytes)?;
+    match std::fs::rename(tmp, path) {
+        Ok(()) => Ok(()),
+        Err(error) if path.exists() => {
+            std::fs::remove_file(path)?;
+            std::fs::rename(tmp, path).map_err(|second_error| {
+                let _ = std::fs::remove_file(tmp);
+                if second_error.kind() == std::io::ErrorKind::Other {
+                    error
+                } else {
+                    second_error
+                }
+            })
+        }
+        Err(error) => {
+            let _ = std::fs::remove_file(tmp);
+            Err(error)
+        }
+    }
+}
+
 pub fn write_private_file(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     if let Some(parent) = path.parent() {
         ensure_private_dir(parent)?;
@@ -75,6 +143,73 @@ pub fn private_dir_status(path: &Path) -> PermissionReport {
 
 pub fn private_file_status(path: &Path) -> PermissionReport {
     private_status(path, false)
+}
+
+/// Status of an IPC subdirectory that must INHERIT its parent's ACL (see
+/// [`ensure_inherited_subdir`]). On Windows, "no inherited ACEs" is the broken
+/// state older versions left behind: sandboxed agents cannot write there and
+/// hooks/skills silently degrade to `daemon_unavailable`.
+pub fn inherited_subdir_status(path: &Path) -> PermissionReport {
+    let meta = match std::fs::metadata(path) {
+        Ok(meta) => meta,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return PermissionReport {
+                status: PermissionStatus::Missing,
+                message: "missing".into(),
+            };
+        }
+        Err(error) => {
+            return PermissionReport {
+                status: PermissionStatus::Error,
+                message: error.to_string(),
+            };
+        }
+    };
+    if !meta.is_dir() {
+        return PermissionReport {
+            status: PermissionStatus::Error,
+            message: "path exists but is not a directory".into(),
+        };
+    }
+    platform_inherited_subdir_status(path)
+}
+
+#[cfg(windows)]
+fn platform_inherited_subdir_status(path: &Path) -> PermissionReport {
+    let output = match no_window_command("icacls").arg(path).output() {
+        Ok(output) => output,
+        Err(error) => {
+            return PermissionReport {
+                status: PermissionStatus::Error,
+                message: error.to_string(),
+            };
+        }
+    };
+    if !output.status.success() {
+        return PermissionReport {
+            status: PermissionStatus::Error,
+            message: String::from_utf8_lossy(&output.stderr).trim().to_string(),
+        };
+    }
+    let text = String::from_utf8_lossy(&output.stdout);
+    if text.contains("(I)") {
+        PermissionReport {
+            status: PermissionStatus::Ok,
+            message: "inherits the IPC root ACL".into(),
+        }
+    } else {
+        PermissionReport {
+            status: PermissionStatus::Warning,
+            message: "inheritance disabled — sandboxed agents cannot use IPC here; \
+                      run `ai-handoff install --yes` or restart the daemon to repair"
+                .into(),
+        }
+    }
+}
+
+#[cfg(not(windows))]
+fn platform_inherited_subdir_status(path: &Path) -> PermissionReport {
+    platform_private_status(path, true)
 }
 
 fn private_status(path: &Path, is_dir: bool) -> PermissionReport {

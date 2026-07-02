@@ -105,7 +105,7 @@ pub fn run_io_with_autostart(
     // is not running yet — spawn it and retry once.
     if autostart_daemon
         && super::hook::daemon_unavailable(&resp)
-        && super::hook::try_start_daemon().is_ok()
+        && super::hook::start_daemon_logged()
     {
         resp = send(
             &req,

@@ -90,14 +90,22 @@ pub fn serve_until_idle(handler: &dyn Handler, poll: Duration, idle_timeout: Dur
     }
 }
 
-/// Create + harden every IPC directory. Called once at daemon startup and
-/// again only if the request dir disappears — never in the hot poll loop.
+/// Create the IPC tree. Called once at daemon startup and again only if the
+/// request dir disappears — never in the hot poll loop.
+///
+/// Only the HOME and IPC ROOT are hardened private. The subdirectories must
+/// INHERIT the root ACL: on Windows the Codex sandbox grants its restricted
+/// token an ACE on the IPC root (a configured writable root), and hardening
+/// the subdirs with `/inheritance:r` stripped that ACE — sandboxed hooks then
+/// could not write requests or read responses, and every hook degraded to
+/// `daemon_unavailable` even with the daemon running. ensure_inherited_subdir
+/// also repairs dirs broken by older versions.
 fn ensure_ipc_dirs() {
     let _ = ai_handoff_core::secure_fs::ensure_private_dir(&ai_handoff_core::paths::home());
     let _ = ai_handoff_core::secure_fs::ensure_private_dir(&ai_handoff_core::paths::ipc_dir());
-    let _ = ai_handoff_core::secure_fs::ensure_private_dir(&requests_dir());
-    let _ = ai_handoff_core::secure_fs::ensure_private_dir(&responses_dir());
-    let _ = ai_handoff_core::secure_fs::ensure_private_dir(&dead_letter_dir());
+    let _ = ai_handoff_core::secure_fs::ensure_inherited_subdir(&requests_dir());
+    let _ = ai_handoff_core::secure_fs::ensure_inherited_subdir(&responses_dir());
+    let _ = ai_handoff_core::secure_fs::ensure_inherited_subdir(&dead_letter_dir());
 }
 
 fn is_request_file(path: &Path) -> bool {
@@ -106,23 +114,23 @@ fn is_request_file(path: &Path) -> bool {
 
 fn write_response(resp: &Response) -> std::io::Result<()> {
     let dir = responses_dir();
-    ai_handoff_core::secure_fs::ensure_private_dir(&dir)?;
     let path = dir.join(format!("{}.json", resp.request_id));
     let tmp = dir.join(format!("{}.json.tmp", resp.request_id));
     let bytes = serde_json::to_vec(resp)?;
-    ai_handoff_core::secure_fs::write_private_atomic(&path, &tmp, &bytes)?;
+    // Shared (inheriting) write: a response hardened with an explicit private
+    // ACL cannot be READ by a sandboxed hook, so the client would time out
+    // and report daemon_unavailable even though we answered.
+    ai_handoff_core::secure_fs::write_shared_atomic(&path, &tmp, &bytes)?;
     Ok(())
 }
 
 fn move_to_dead_letter(path: &Path) {
-    let _ = ai_handoff_core::secure_fs::ensure_private_dir(&dead_letter_dir());
+    let _ = ai_handoff_core::secure_fs::ensure_inherited_subdir(&dead_letter_dir());
     if let Some(name) = path.file_name() {
         let dest = dead_letter_dir().join(name);
         let _ = std::fs::remove_file(&dest);
         if std::fs::rename(path, &dest).is_err() {
             let _ = std::fs::remove_file(path);
-        } else {
-            let _ = ai_handoff_core::secure_fs::harden_private_file(&dest);
         }
     }
 }
